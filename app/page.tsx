@@ -88,8 +88,7 @@ export default function Home() {
                 Claude Code
               </div>
               <code className="text-xs whitespace-pre">
-                claude mcp add plan-review --transport http
-                https://askhuman.app/mcp
+                /plugin install plan-review@askhuman
               </code>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
@@ -97,7 +96,7 @@ export default function Home() {
                 Codex
               </div>
               <code className="text-xs whitespace-pre">
-                codex mcp add plan-review --url https://askhuman.app/mcp
+                /plugins install plan-review@askhuman
               </code>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
