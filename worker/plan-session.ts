@@ -319,26 +319,6 @@ export class PlanSession extends DurableObject {
     });
   }
 
-  async broadcastEval(code: string): Promise<void> {
-    this.broadcast({ type: "eval", code });
-  }
-
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    if (typeof message !== "string") return;
-    try {
-      const data = JSON.parse(message);
-      // Forward eval results to all other WS clients (so agent debug tools can see them)
-      if (data.type === "eval-result") {
-        const json = JSON.stringify(data);
-        for (const client of this.ctx.getWebSockets()) {
-          if (client !== ws) {
-            try { client.send(json); } catch { /* disconnected */ }
-          }
-        }
-      }
-    } catch { /* ignore non-JSON */ }
-  }
-
   private broadcast(data: unknown) {
     const json = JSON.stringify(data);
     for (const ws of this.ctx.getWebSockets()) {

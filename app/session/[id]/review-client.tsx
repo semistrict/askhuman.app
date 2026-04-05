@@ -35,23 +35,6 @@ export function ReviewClient({
 
     ws.addEventListener("message", (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === "eval") {
-        try {
-          const result = new Function(data.code)();
-          const serialized = result instanceof Element
-            ? result.outerHTML
-            : typeof result === "object"
-              ? JSON.stringify(result, null, 2)
-              : String(result);
-          console.log("[eval]", serialized);
-          ws.send(JSON.stringify({ type: "eval-result", result: serialized }));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error("[eval error]", msg);
-          ws.send(JSON.stringify({ type: "eval-result", error: msg }));
-        }
-        return;
-      }
       if (data.type === "thread") {
         setThreads((prev) => {
           if (prev.some((t) => t.id === data.thread.id)) return prev;

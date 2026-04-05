@@ -7,8 +7,9 @@
     {
       "name": "askhuman.app",
       "source": {
-        "source": "local",
-        "path": "./plugins/askhuman.app"
+        "source": "git-subdir",
+        "url": "https://github.com/semistrict/askhuman.app.git",
+        "path": "plugins/askhuman.app"
       },
       "description": "Human-in-the-loop review tools for AI agents. Plan review, threaded comments, MCP tools.",
       "category": "Productivity",
