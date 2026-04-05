@@ -1,8 +1,8 @@
 {
   "name": "askhuman",
   "owner": {
-    "name": "Ramon Nogueira",
-    "email": "ramon@askhuman.app"
+    "name": "askhuman.app",
+    "email": "hello@askhuman.app"
   },
   "metadata": {
     "description": "Human-in-the-loop review tools for AI agents"

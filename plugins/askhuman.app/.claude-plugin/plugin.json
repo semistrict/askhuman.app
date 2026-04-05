@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Human-in-the-loop review tools for AI agents. Sometimes your agent needs to phone a friend.",
   "author": {
-    "name": "Ramon Nogueira",
+    "name": "askhuman.app",
     "url": "https://github.com/semistrict"
   },
   "homepage": "https://askhuman.app",
