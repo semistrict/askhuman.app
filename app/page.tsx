@@ -124,11 +124,12 @@ export default function Home() {
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
-                Any agent (no install)
+                Any agent (zero install)
               </div>
-              <pre className="text-xs whitespace-pre leading-relaxed">{`curl https://askhuman.app/llms.txt`}</pre>
+              <pre className="text-xs whitespace-pre leading-relaxed">{`curl https://askhuman.app`}</pre>
               <p className="text-xs text-muted-foreground mt-2">
-                Tell your agent to read this URL. It has everything it needs.
+                Auto-creates a session and prints ready-to-run curl commands.
+                Just tell your agent to run it.
               </p>
             </div>
           </div>

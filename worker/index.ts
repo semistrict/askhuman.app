@@ -8,9 +8,56 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import type { ImageConfig } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { createSession, initSession } from "@/lib/plan-review";
 
 export { PlanSession } from "./plan-session";
 export { McpSession } from "./mcp-session";
+
+async function handleCurlRoot(request: Request): Promise<Response> {
+  const id = createSession();
+  await initSession(id);
+  const base = new URL("/", request.url).toString().replace(/\/$/, "");
+
+  const text = `askhuman.app — human-in-the-loop review tools for AI agents
+
+Session created: ${id}
+
+STEP 1: Post your plan
+
+  curl -X POST ${base}/agent/sessions/${id}/plan \\
+    -H 'Content-Type: text/markdown' \\
+    --data-binary @- << 'EOF'
+  # Your Plan Title
+
+  Your markdown plan here...
+  EOF
+
+  Returns: { "url": "...", "instructions": [...] }
+
+STEP 2: Open the review URL for the human
+
+  open "<url from step 1>"
+
+STEP 3: Poll for comments (long-polls up to 2 min)
+
+  curl -s ${base}/agent/sessions/${id}/comments
+
+  Returns: { "status": "comments"|"timeout"|"done", "threads": [...] }
+
+STEP 4: Reply to comments and auto-poll for next round
+
+  curl -s -X POST ${base}/agent/sessions/${id}/reply \\
+    -H 'Content-Type: application/json' \\
+    -d '{"replies":[{"threadId":1,"text":"your reply"}]}'
+
+STEP 5: Loop steps 3-4 until status is "done"
+`;
+
+  return new Response(text, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -52,6 +99,12 @@ export default {
           return result.response();
         },
       }, allowedWidths);
+    }
+
+    // curl https://askhuman.app → auto-create session, return instructions
+    const ua = request.headers.get("user-agent") || "";
+    if (url.pathname === "/" && request.method === "GET" && /^curl\//i.test(ua)) {
+      return handleCurlRoot(request);
     }
 
     // Delegate everything else to vinext, forwarding ctx so that
