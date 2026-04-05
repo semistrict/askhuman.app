@@ -5,7 +5,7 @@ description: Submit a markdown plan for human review in the browser. The reviewe
 
 # Plan Review
 
-Use the plan-review MCP tools to get human feedback on a plan before implementing it.
+Use the askhuman MCP tools to get human feedback on a plan before implementing it.
 
 ## Workflow
 

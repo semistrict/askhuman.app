@@ -5,12 +5,12 @@
   },
   "plugins": [
     {
-      "name": "plan-review",
+      "name": "askhuman.app",
       "source": {
         "source": "local",
-        "path": "./plugins/codex"
+        "path": "./plugins/askhuman.app"
       },
-      "description": "Submit plans for human review. The reviewer comments in their browser, you reply via MCP tools.",
+      "description": "Human-in-the-loop review tools for AI agents. Plan review, threaded comments, MCP tools.",
       "category": "Productivity",
       "policy": {
         "installation": "AVAILABLE"

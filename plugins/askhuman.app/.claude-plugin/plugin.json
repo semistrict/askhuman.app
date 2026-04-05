@@ -1,12 +1,13 @@
 {
-  "name": "plan-review",
+  "name": "askhuman.app",
   "version": "1.0.0",
-  "description": "Submit plans for human review. The reviewer comments in their browser, you reply via MCP tools. Long-polling, works with any MCP client.",
+  "description": "Human-in-the-loop review tools for AI agents. Sometimes your agent needs to phone a friend.",
   "author": {
     "name": "Ramon Nogueira",
     "url": "https://github.com/semistrict"
   },
-  "repository": "https://github.com/semistrict/agent-foo-cf",
+  "homepage": "https://askhuman.app",
+  "repository": "https://github.com/semistrict/askhuman.app",
   "license": "MIT",
   "keywords": ["review", "plan", "collaboration", "human-in-the-loop"],
   "skills": "./skills/",

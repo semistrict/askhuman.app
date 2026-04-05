@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "plan-review": {
+    "askhuman": {
       "type": "http",
       "url": "https://askhuman.app/mcp"
     }

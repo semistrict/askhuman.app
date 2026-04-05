@@ -88,7 +88,7 @@ export default function Home() {
                 Claude Code
               </div>
               <pre className="text-xs whitespace-pre leading-relaxed">{`/plugin marketplace add semistrict/askhuman.app
-/plugin install plan-review@askhuman`}</pre>
+/plugin install askhuman.app@askhuman`}</pre>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
