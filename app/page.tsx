@@ -124,17 +124,12 @@ export default function Home() {
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
-                curl
+                Any agent (no install)
               </div>
-              <pre className="text-xs whitespace-pre leading-relaxed">{`curl -X POST https://askhuman.app/agent/sessions
-# → { "id": "uuid" }
-
-curl -X POST https://askhuman.app/agent/sessions/\${id}/plan \\
-  -d '# My Plan...'
-# → { "url": "https://askhuman.app/session/uuid", ... }
-
-curl https://askhuman.app/agent/sessions/\${id}/comments
-# → blocks until human comments, returns threads`}</pre>
+              <pre className="text-xs whitespace-pre leading-relaxed">{`curl https://askhuman.app/llms.txt`}</pre>
+              <p className="text-xs text-muted-foreground mt-2">
+                Tell your agent to read this URL. It has everything it needs.
+              </p>
             </div>
           </div>
         </div>
