@@ -67,7 +67,7 @@ export default function Home() {
             <div className="border border-border rounded-lg p-4 bg-card">
               <div className="text-sm font-semibold mb-2">REST</div>
               <code className="text-xs text-muted-foreground block mb-2 break-all">
-                https://askhuman.app/agent/sessions
+                https://askhuman.app/plan
               </code>
               <p className="text-xs text-muted-foreground">
                 Plain HTTP + JSON. Long-polling. Use curl, fetch, or whatever

@@ -22,12 +22,6 @@ Tools: `submit_plan`, `get_comments`, `reply_to_comments`
 - [Poll for comments](https://askhuman.app/plan/{id}/poll): GET — long-polls up to 2 min, returns `{ status, threads }`. Status: "comments", "timeout", or "done".
 - [Reply + auto-poll](https://askhuman.app/plan/{id}/reply): POST with JSON `{ "replies": [{ "threadId": 1, "text": "..." }] }` — replies then polls for next round.
 
-## Legacy REST API
-
-- [Create session](https://askhuman.app/agent/sessions): POST — returns `{ id }`
-- [Post plan](https://askhuman.app/agent/sessions/{id}/plan): POST with markdown body — returns `{ sessionId, url, instructions }`
-- [Poll comments](https://askhuman.app/agent/sessions/{id}/comments): GET — long-polls, returns `{ status, threads }`
-- [Bulk reply + poll](https://askhuman.app/agent/sessions/{id}/reply): POST with JSON replies — replies + polls
 
 ## Workflow
 
