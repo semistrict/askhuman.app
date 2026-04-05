@@ -1,0 +1,14 @@
+{
+  "name": "plan-review",
+  "version": "1.0.0",
+  "description": "Submit plans for human review. The reviewer comments in their browser, you reply via MCP tools. Long-polling, works with any MCP client.",
+  "author": {
+    "name": "Ramon Nogueira",
+    "url": "https://github.com/semistrict"
+  },
+  "repository": "https://github.com/semistrict/agent-foo-cf",
+  "license": "MIT",
+  "keywords": ["review", "plan", "collaboration", "human-in-the-loop"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

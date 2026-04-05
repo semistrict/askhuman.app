@@ -1,0 +1,29 @@
+# Agent Foo — Plan Review Tool
+
+> A two-interface app for agent-driven plan review. Agents interact via curl (REST API), humans via browser. Agents post markdown plans, humans review and comment (general or line-specific), agents reply. Real-time updates via WebSocket.
+
+## Agent API
+
+- [Create session](https://agent-foo-cf.ramon3525.workers.dev/agent/sessions): POST — returns `{ id }` with a UUID session ID
+- [Post plan](https://agent-foo-cf.ramon3525.workers.dev/agent/sessions/{id}/plan): POST with raw markdown body — returns `{ url }` pointing to the human review page
+- [Poll for comments](https://agent-foo-cf.ramon3525.workers.dev/agent/sessions/{id}/comments): GET — long-polls up to 2 minutes for new human comments, returns `{ threads: [...] }`. Set `X-Poll-Timeout` header (ms) to control timeout.
+- [Bulk reply + poll](https://agent-foo-cf.ramon3525.workers.dev/agent/sessions/{id}/reply): POST with JSON `{ "replies": [{ "threadId": 1, "text": "..." }, ...] }` — replies to multiple threads at once, then long-polls for the next batch of comments. Returns `{ sent, threads }`.
+- [Reply to single thread](https://agent-foo-cf.ramon3525.workers.dev/agent/sessions/{id}/threads/{threadId}/messages): POST with raw text body — agent replies to one thread
+- [Debug eval](https://agent-foo-cf.ramon3525.workers.dev/agent/sessions/{id}/eval): POST with raw JS body — executes JavaScript in connected browser clients via WebSocket
+
+## Human Interface
+
+- [View session](https://agent-foo-cf.ramon3525.workers.dev/session/{id}): Browser UI showing the plan with line numbers, inline commenting, and real-time updates via WebSocket
+
+## Workflow
+
+1. Agent creates a session: `POST /agent/sessions` → `{ id }`
+2. Agent posts a markdown plan: `POST /agent/sessions/{id}/plan` with markdown body → `{ url, instructions }`
+3. Agent opens the URL in the user's browser, then polls: `GET /agent/sessions/{id}/comments` → `{ threads }`
+4. Human reviews the plan and leaves comments (general or on specific lines)
+5. Agent replies to all threads + auto-polls for next round: `POST /agent/sessions/{id}/reply` with `{ replies: [{threadId, text}] }` → `{ sent, threads }`
+6. Loop step 5 until human is done. Human sees agent replies in real-time via WebSocket.
+
+## Data Model
+
+Threads have an optional `line` field (null for general comments, line number for line-specific). Each thread contains messages with `role` ("human" or "agent") and `text`. The agent long-poll endpoint tracks a cursor so each poll returns only new comments.

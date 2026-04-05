@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/dist/
+
+# vinext / wrangler
+.vinext/
+.wrangler/
+
+# playwright
+/test-results/
+/playwright-report/
