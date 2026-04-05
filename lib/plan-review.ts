@@ -19,16 +19,16 @@ export async function submitPlan(
   const session = PlanSession.getInstance(sessionId);
   await session.setPlan(markdown);
   const url = `${baseUrl}/session/${sessionId}`;
-  const commentsUrl = `${baseUrl}/agent/sessions/${sessionId}/comments`;
-  const replyUrl = `${baseUrl}/agent/sessions/${sessionId}/reply`;
+  const pollUrl = `${baseUrl}/plan/${sessionId}/poll`;
+  const replyUrl = `${baseUrl}/plan/${sessionId}/reply`;
   return {
     sessionId,
     url,
     instructions: [
       `1. Open the review page in the user's browser:\n   open "${url}"`,
-      `2. Poll for human comments (long-polls up to 2 min, returns immediately when comments arrive):\n   curl -s ${commentsUrl}`,
+      `2. Poll for human comments (long-polls up to 2 min, returns immediately when comments arrive):\n   curl ${pollUrl}`,
       `3. The response has a "status" field: "comments" (new feedback), "timeout" (no activity, poll again), or "done" (human finished reviewing).`,
-      `4. When status is "comments", reply to all threads and auto-poll for the next round:\n   curl -s -X POST ${replyUrl} -H 'Content-Type: application/json' -d '{"replies":[{"threadId":1,"text":"your reply"}]}'`,
+      `4. When status is "comments", reply to all threads and auto-poll for the next round:\n   curl -d '{"replies":[{"threadId":1,"text":"your reply"}]}' ${replyUrl}`,
       `5. The reply response also has "status"/"threads" — loop until status is "done".`,
     ],
   };
@@ -39,8 +39,8 @@ export function formatPollResponse(
   sessionId: string,
   baseUrl: string
 ) {
-  const commentsUrl = `${baseUrl}/agent/sessions/${sessionId}/comments`;
-  const replyUrl = `${baseUrl}/agent/sessions/${sessionId}/reply`;
+  const commentsUrl = `${baseUrl}/plan/${sessionId}/poll`;
+  const replyUrl = `${baseUrl}/plan/${sessionId}/reply`;
 
   if (result.done) {
     return {
