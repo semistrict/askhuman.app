@@ -12,7 +12,7 @@ import handler from "vinext/server/app-router-entry";
 export { PlanSession } from "./plan-session";
 export { McpSession } from "./mcp-session";
 
-async function handleRoot(request: Request): Promise<Response> {
+async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
 
   const text = `askhuman.app — human-in-the-loop review tools for AI agents
@@ -26,6 +26,130 @@ async function handleRoot(request: Request): Promise<Response> {
 
   return new Response(text, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+function handleRootHtml(): Response {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>askhuman.app</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: #0c0c0c;
+    color: #b0aca6;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .page { max-width: 540px; width: 100%; }
+  h1 { font-size: 2.5rem; color: #e8e4e0; letter-spacing: -0.04em; margin-bottom: 0.25rem; }
+  h1 span { font-weight: 400; color: #6b6560; }
+  h1 { margin-bottom: 2.5rem; }
+  .cmd {
+    background: #1a1816;
+    border: 1px solid #2a2724;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .cmd:hover { border-color: #4a4540; }
+  .cmd pre {
+    font-family: inherit;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .cmd .label {
+    font-size: 0.6875rem;
+    color: #6b6560;
+    margin-bottom: 0.375rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .cmd .copy {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    font-size: 0.6875rem;
+    color: #6b6560;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+  }
+  .cmd:hover .copy { opacity: 1; }
+  .cmd.copied .copy { color: #7a9f6a; }
+  .note {
+    font-size: 0.75rem;
+    color: #6b6560;
+    margin-top: -0.75rem;
+    margin-bottom: 1.5rem;
+  }
+  .links {
+    font-size: 0.75rem;
+    display: flex;
+    gap: 1.25rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #2a2724;
+  }
+  a { color: #8a8580; text-decoration: underline; text-underline-offset: 2px; transition: color 0.15s; }
+  a:hover { color: #e8e4e0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>askhuman<span>.app</span></h1>
+
+  <div class="cmd" onclick="copyCmd(this, 'curl -s https://askhuman.app')">
+    <div class="label">Any agent (zero install)</div>
+    <pre>curl -s https://askhuman.app</pre>
+    <span class="copy">copied</span>
+  </div>
+  <p class="note">Auto-creates a session and prints everything your agent needs.</p>
+
+  <div class="cmd" onclick="copyCmd(this, '/plugin marketplace add semistrict/askhuman.app\\n/plugin install askhuman.app@askhuman')">
+    <div class="label">Claude Code</div>
+    <pre>/plugin marketplace add semistrict/askhuman.app
+/plugin install askhuman.app@askhuman</pre>
+    <span class="copy">copied</span>
+  </div>
+
+  <div class="cmd" onclick="copyCmd(this, 'codex mcp add askhuman --url https://askhuman.app/mcp')">
+    <div class="label">Codex</div>
+    <pre>codex mcp add askhuman --url https://askhuman.app/mcp</pre>
+    <span class="copy">copied</span>
+  </div>
+
+  <div class="links">
+    <a href="https://github.com/semistrict/askhuman.app">github</a>
+    <a href="/llms.txt">llms.txt</a>
+    <a href="/mcp">mcp endpoint</a>
+  </div>
+</div>
+<script>
+function copyCmd(el, text) {
+  navigator.clipboard.writeText(text.replace(/\\\\n/g, '\\n'));
+  el.classList.add('copied');
+  setTimeout(() => el.classList.remove('copied'), 1500);
+}
+</script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
 
@@ -72,9 +196,13 @@ export default {
       }, allowedWidths);
     }
 
-    // https://askhuman.app → plain text instructions
+    // https://askhuman.app → instructions (plain text for curl, HTML for browsers)
     if (url.pathname === "/" && request.method === "GET") {
-      return handleRoot(request);
+      const ua = request.headers.get("user-agent") || "";
+      if (/^curl\//i.test(ua)) {
+        return handleRootPlain(request);
+      }
+      return handleRootHtml();
     }
 
     // Delegate everything else to vinext, forwarding ctx so that
