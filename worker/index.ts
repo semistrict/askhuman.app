@@ -22,15 +22,11 @@ async function handleCurlRoot(request: Request): Promise<Response> {
 
 Session created: ${id}
 
-STEP 1: Post your plan
+STEP 1: Write your plan to a file, then post it
 
   curl -X POST ${base}/agent/sessions/${id}/plan \\
     -H 'Content-Type: text/markdown' \\
-    --data-binary @- << 'EOF'
-  # Your Plan Title
-
-  Your markdown plan here...
-  EOF
+    --data-binary @plan.md
 
   Returns: { "url": "...", "instructions": [...] }
 
