@@ -250,7 +250,7 @@ test.describe("MCP Plan Review", () => {
 
       // Poll via REST API — should see the comment
       const pollRes = await request.get(
-        `/agent/sessions/${sessionId}/comments`,
+        `/plan/${sessionId}/poll`,
         { headers: { "X-Poll-Timeout": "2000" }, timeout: 10000 }
       );
       expect(pollRes.status()).toBe(200);
@@ -261,7 +261,7 @@ test.describe("MCP Plan Review", () => {
       );
 
       // Reply via REST API
-      await request.post(`/agent/sessions/${sessionId}/reply`, {
+      await request.post(`/plan/${sessionId}/reply`, {
         data: {
           replies: [
             { threadId: pollBody.threads[0].id, text: "REST reply" },

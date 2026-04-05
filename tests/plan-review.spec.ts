@@ -20,48 +20,31 @@ test.describe("Plan Review", () => {
   let sessionId: string;
 
   test.beforeAll(async ({ request }) => {
-    // Create a session for use across tests
-    const res = await request.post("/agent/sessions");
+    const res = await request.post("/plan", {
+      data: PLAN_MARKDOWN,
+      headers: { "Content-Type": "text/markdown" },
+    });
     expect(res.status()).toBe(200);
     const body = await res.json();
-    sessionId = body.id;
-
-    // Post a plan
-    const planRes = await request.post(
-      `/agent/sessions/${sessionId}/plan`,
-      {
-        data: PLAN_MARKDOWN,
-        headers: { "Content-Type": "text/markdown" },
-      }
-    );
-    expect(planRes.status()).toBe(200);
+    sessionId = body.sessionId;
   });
 
-  test("agent creates session", async ({ request }) => {
-    const res = await request.post("/agent/sessions");
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-    );
-  });
-
-  test("agent posts plan", async ({ request }) => {
-    const id = (await (await request.post("/agent/sessions")).json()).id;
-    const res = await request.post(`/agent/sessions/${id}/plan`, {
+  test("agent submits plan", async ({ request }) => {
+    const res = await request.post("/plan", {
       data: "# My Plan\n\nDo things.",
       headers: { "Content-Type": "text/markdown" },
     });
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.url).toContain(`/session/${id}`);
+    expect(body.sessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+    expect(body.url).toContain(`/session/${body.sessionId}`);
   });
 
   test("human views plan", async ({ page }) => {
     await page.goto(`/session/${sessionId}`);
-    // The plan source lines should show the heading text
     await expect(page.locator("text=Architecture Plan").first()).toBeVisible();
-    // Line numbers should be visible in the gutter
     await expect(page.locator("button >> text=1").first()).toBeVisible();
   });
 
@@ -88,104 +71,93 @@ test.describe("Plan Review", () => {
   });
 
   test("agent receives comments via long-poll", async ({ request }) => {
-    // Create a fresh session to control timing
-    const id = (await (await request.post("/agent/sessions")).json()).id;
-    await request.post(`/agent/sessions/${id}/plan`, {
+    const planRes = await request.post("/plan", {
       data: "# Plan\nLine 1",
       headers: { "Content-Type": "text/markdown" },
     });
+    const { sessionId: id } = await planRes.json();
 
-    // Post a comment
     await request.post(`/session/${id}/threads`, {
       data: { text: "New feedback" },
     });
 
-    // Long-poll should return immediately with the new comment
-    const res = await request.get(`/agent/sessions/${id}/comments`);
+    const res = await request.get(`/plan/${id}/poll`);
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.threads.length).toBeGreaterThan(0);
+    expect(body.status).toBe("comments");
     expect(body.threads[0].messages[0].text).toBe("New feedback");
   });
 
   test("agent replies to thread", async ({ request }) => {
-    // Create thread first
     const threadRes = await request.post(`/session/${sessionId}/threads`, {
       data: { text: "Question about step 1" },
     });
     const thread = await threadRes.json();
 
-    const res = await request.post(
-      `/agent/sessions/${sessionId}/threads/${thread.id}/messages`,
-      { data: "Good point, I will update the plan." }
-    );
+    const res = await request.post(`/plan/${sessionId}/reply`, {
+      data: {
+        replies: [
+          { threadId: thread.id, text: "Good point, I will update the plan." },
+        ],
+      },
+      headers: { "X-Poll-Timeout": "1000" },
+      timeout: 10000,
+    });
     expect(res.status()).toBe(200);
-    const msg = await res.json();
-    expect(msg.role).toBe("agent");
-    expect(msg.text).toBe("Good point, I will update the plan.");
-    expect(msg.thread_id).toBe(thread.id);
+    const body = await res.json();
+    expect(body.sent[0].role).toBe("agent");
+    expect(body.sent[0].text).toBe("Good point, I will update the plan.");
+    expect(body.sent[0].thread_id).toBe(thread.id);
   });
 
   test("WebSocket receives agent reply", async ({ page, request }) => {
-    // Create a fresh session
-    const id = (await (await request.post("/agent/sessions")).json()).id;
-    await request.post(`/agent/sessions/${id}/plan`, {
+    const planRes = await request.post("/plan", {
       data: "# WS Test Plan\nLine one.",
       headers: { "Content-Type": "text/markdown" },
     });
+    const { sessionId: id } = await planRes.json();
 
-    // Create a thread via API
     const threadRes = await request.post(`/session/${id}/threads`, {
       data: { text: "Initial comment" },
     });
     const thread = await threadRes.json();
 
-    // Collect console messages and errors
-    const consoleLogs: string[] = [];
-    page.on("console", (msg) => consoleLogs.push(`[${msg.type()}] ${msg.text()}`));
-    page.on("pageerror", (err) => consoleLogs.push(`[pageerror] ${err.message}`));
-
-    // Navigate to the page (WS connects)
     await page.goto(`/session/${id}`);
     await expect(page.locator("text=Initial comment")).toBeVisible();
-
-    // Expand the thread (click on it to show replies)
     await page.locator("text=Initial comment").click();
 
-    // Post an agent reply via API
-    const replyRes = await request.post(
-      `/agent/sessions/${id}/threads/${thread.id}/messages`,
-      { data: "Agent reply via WS" }
-    );
-    expect(replyRes.status()).toBe(200);
+    await request.post(`/plan/${id}/reply`, {
+      data: {
+        replies: [{ threadId: thread.id, text: "Agent reply via WS" }],
+      },
+      headers: { "X-Poll-Timeout": "1000" },
+      timeout: 10000,
+    });
 
-    // The reply should appear in the page via WebSocket
     await expect(page.locator("text=Agent reply via WS")).toBeVisible({
       timeout: 10000,
     });
   });
 
   test("long-poll returns empty after timeout", async ({ request }) => {
-    // Create a fresh session with no activity
-    const id = (await (await request.post("/agent/sessions")).json()).id;
-    await request.post(`/agent/sessions/${id}/plan`, {
+    const planRes = await request.post("/plan", {
       data: "# Empty\nNothing here.",
       headers: { "Content-Type": "text/markdown" },
     });
+    const { sessionId: id } = await planRes.json();
 
-    // Long-poll with a short timeout via X-Poll-Timeout header
-    const res = await request.get(`/agent/sessions/${id}/comments`, {
+    const res = await request.get(`/plan/${id}/poll`, {
       headers: { "X-Poll-Timeout": "2000" },
       timeout: 10000,
     });
     expect(res.status()).toBe(200);
     const body = await res.json();
+    expect(body.status).toBe("timeout");
     expect(body.threads).toEqual([]);
   });
 
   test("404 for nonexistent session page", async ({ page }) => {
-    const res = await page.goto("/session/nonexistent-id");
-    // Page should render (the DO is created on access) but show "No plan found"
+    await page.goto("/session/nonexistent-id");
     await expect(page.locator("text=No plan found")).toBeVisible();
   });
 });
