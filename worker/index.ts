@@ -22,31 +22,23 @@ async function handleCurlRoot(request: Request): Promise<Response> {
 
 Session created: ${id}
 
-STEP 1: Write your plan to a file, then post it
+1. Write your plan to a file, then post it:
 
-  curl -X POST ${base}/agent/sessions/${id}/plan \\
-    -H 'Content-Type: text/markdown' \\
-    --data-binary @plan.md
+  curl --data-binary @plan.md ${base}/agent/sessions/${id}/plan
 
-  Returns: { "url": "...", "instructions": [...] }
+2. Open the review URL for the human:
 
-STEP 2: Open the review URL for the human
+  open "<url from response>"
 
-  open "<url from step 1>"
+3. Poll for comments (long-polls up to 2 min):
 
-STEP 3: Poll for comments (long-polls up to 2 min)
+  curl ${base}/agent/sessions/${id}/comments
 
-  curl -s ${base}/agent/sessions/${id}/comments
+4. Reply and auto-poll for next round:
 
-  Returns: { "status": "comments"|"timeout"|"done", "threads": [...] }
+  curl -d '{"replies":[{"threadId":1,"text":"your reply"}]}' ${base}/agent/sessions/${id}/reply
 
-STEP 4: Reply to comments and auto-poll for next round
-
-  curl -s -X POST ${base}/agent/sessions/${id}/reply \\
-    -H 'Content-Type: application/json' \\
-    -d '{"replies":[{"threadId":1,"text":"your reply"}]}'
-
-STEP 5: Loop steps 3-4 until status is "done"
+5. Loop 3-4 until status is "done".
 `;
 
   return new Response(text, {
