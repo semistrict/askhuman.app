@@ -1,4 +1,4 @@
-# askhuman.app — Human-in-the-loop review tools for AI agents
+# askhuman.app - Human-in-the-loop review tools for AI agents
 
 > Sometimes your AI agent needs to phone a friend. Submit plans for human review via MCP or REST API. Humans review in their browser with threaded, line-specific comments. Agents reply and loop until done.
 
@@ -18,9 +18,9 @@ Tools: `submit_plan`, `get_comments`, `reply_to_comments`
 
 ## REST API
 
-- [Submit plan](https://askhuman.app/plan): POST with markdown body — creates session, returns `{ sessionId, url, instructions }`
-- [Poll for comments](https://askhuman.app/plan/{id}/poll): GET — long-polls up to 2 min, returns `{ status, threads }`. Status: "comments", "timeout", or "done".
-- [Reply + auto-poll](https://askhuman.app/plan/{id}/reply): POST with JSON `{ "replies": [{ "threadId": 1, "text": "..." }] }` — replies then polls for next round.
+- [Submit plan](https://askhuman.app/plan): POST with markdown body - creates session, returns `{ sessionId, url, instructions }`
+- [Poll for comments](https://askhuman.app/plan/{id}/poll): GET - long-polls up to 2 min, returns `{ status, threads }`. Status: "comments", "timeout", or "done".
+- [Reply + auto-poll](https://askhuman.app/plan/{id}/reply): POST with JSON `{ "replies": [{ "threadId": 1, "text": "..." }] }` - replies then polls for next round.
 
 
 ## Workflow
