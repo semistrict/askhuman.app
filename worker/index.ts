@@ -12,7 +12,7 @@ import handler from "vinext/server/app-router-entry";
 export { PlanSession } from "./plan-session";
 export { McpSession } from "./mcp-session";
 
-async function handleCurlRoot(request: Request): Promise<Response> {
+async function handleRoot(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
 
   const text = `askhuman.app — human-in-the-loop review tools for AI agents
@@ -72,10 +72,9 @@ export default {
       }, allowedWidths);
     }
 
-    // curl https://askhuman.app → auto-create session, return instructions
-    const ua = request.headers.get("user-agent") || "";
-    if (url.pathname === "/" && request.method === "GET" && /^curl\//i.test(ua)) {
-      return handleCurlRoot(request);
+    // https://askhuman.app → plain text instructions
+    if (url.pathname === "/" && request.method === "GET") {
+      return handleRoot(request);
     }
 
     // Delegate everything else to vinext, forwarding ctx so that
