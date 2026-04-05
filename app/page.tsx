@@ -87,17 +87,14 @@ export default function Home() {
               <div className="text-xs text-muted-foreground mb-2">
                 Claude Code
               </div>
-              <code className="text-xs whitespace-pre">
-                /plugin install plan-review@askhuman
-              </code>
+              <pre className="text-xs whitespace-pre leading-relaxed">{`/plugin marketplace add semistrict/askhuman.app
+/plugin install plan-review@askhuman`}</pre>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
                 Codex
               </div>
-              <code className="text-xs whitespace-pre">
-                /plugins install plan-review@askhuman
-              </code>
+              <pre className="text-xs whitespace-pre leading-relaxed">{`codex mcp add plan-review --url https://askhuman.app/mcp`}</pre>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">

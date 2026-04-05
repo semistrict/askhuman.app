@@ -1,0 +1,19 @@
+{
+  "name": "askhuman",
+  "owner": {
+    "name": "Ramon Nogueira",
+    "email": "ramon@askhuman.app"
+  },
+  "metadata": {
+    "description": "Human-in-the-loop review tools for AI agents"
+  },
+  "plugins": [
+    {
+      "name": "plan-review",
+      "source": "./plugins/claude-code",
+      "description": "Submit plans for human review. The reviewer comments in their browser, you reply via MCP tools.",
+      "version": "1.0.0",
+      "keywords": ["review", "plan", "collaboration", "human-in-the-loop"]
+    }
+  ]
+}

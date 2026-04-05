@@ -1,0 +1,20 @@
+{
+  "name": "askhuman",
+  "interface": {
+    "displayName": "askhuman.app"
+  },
+  "plugins": [
+    {
+      "name": "plan-review",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "description": "Submit plans for human review. The reviewer comments in their browser, you reply via MCP tools.",
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE"
+      }
+    }
+  ]
+}
