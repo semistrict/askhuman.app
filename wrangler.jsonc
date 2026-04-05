@@ -6,7 +6,7 @@
     "nodejs_compat"
   ],
   "main": "./worker/index.ts",
-  "workers_dev": true,
+  "workers_dev": false,
   "routes": [
     { "pattern": "askhuman.app", "custom_domain": true },
     { "pattern": "www.askhuman.app", "custom_domain": true }
