@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Plan Review",
-  description: "Agent-driven plan review tool",
+  title: "askhuman.app — human-in-the-loop review tools for AI agents",
+  description:
+    "Sometimes your AI agent needs to phone a friend. Human-in-the-loop review tools via MCP and REST API.",
 };
 
 export default function RootLayout({
