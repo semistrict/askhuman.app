@@ -128,8 +128,7 @@ export default function Home() {
               </div>
               <pre className="text-xs whitespace-pre leading-relaxed">{`curl https://askhuman.app`}</pre>
               <p className="text-xs text-muted-foreground mt-2">
-                Auto-creates a session and prints ready-to-run curl commands.
-                Just tell your agent to run it.
+                That{"'"}s it. Auto-creates a session and prints everything.
               </p>
             </div>
           </div>
