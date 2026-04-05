@@ -16,7 +16,7 @@ export { McpSession } from "./mcp-session";
 async function handleCurlRoot(request: Request): Promise<Response> {
   const id = createSession();
   await initSession(id);
-  const base = new URL("/", request.url).toString().replace(/\/$/, "");
+  const base = "https://askhuman.app";
 
   const text = `askhuman.app — human-in-the-loop review tools for AI agents
 
