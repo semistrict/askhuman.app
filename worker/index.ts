@@ -8,23 +8,20 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import type { ImageConfig } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { createSession, initSession } from "@/lib/plan-review";
 
 export { PlanSession } from "./plan-session";
 export { McpSession } from "./mcp-session";
 
 async function handleCurlRoot(request: Request): Promise<Response> {
-  const id = createSession();
-  await initSession(id);
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
 
   const text = `askhuman.app — human-in-the-loop review tools for AI agents
 
-Session created: ${id}
-
 1. Write your plan to a file, then post it:
 
-  curl --data-binary @plan.md ${base}/agent/sessions/${id}/plan
+  curl --data-binary @plan.md ${base}/plan/start
+
+  Returns: { "sessionId": "...", "url": "...", "instructions": [...] }
 
 2. Open the review URL for the human:
 
@@ -32,11 +29,11 @@ Session created: ${id}
 
 3. Poll for comments (long-polls up to 2 min):
 
-  curl ${base}/agent/sessions/${id}/comments
+  curl ${base}/agent/sessions/<sessionId>/comments
 
 4. Reply and auto-poll for next round:
 
-  curl -d '{"replies":[{"threadId":1,"text":"your reply"}]}' ${base}/agent/sessions/${id}/reply
+  curl -d '{"replies":[{"threadId":1,"text":"your reply"}]}' ${base}/agent/sessions/<sessionId>/reply
 
 5. Loop 3-4 until status is "done".
 `;
