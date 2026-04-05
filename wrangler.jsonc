@@ -1,11 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "agent-foo-cf",
+  "name": "askhuman-app",
   "compatibility_date": "2026-04-05",
   "compatibility_flags": [
     "nodejs_compat"
   ],
   "main": "./worker/index.ts",
+  "routes": [
+    { "pattern": "askhuman.app", "custom_domain": true },
+    { "pattern": "www.askhuman.app", "custom_domain": true }
+  ],
   "assets": {
     "directory": "dist/client",
     "not_found_handling": "none",

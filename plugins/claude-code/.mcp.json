@@ -2,7 +2,7 @@
   "mcpServers": {
     "plan-review": {
       "type": "http",
-      "url": "https://agent-foo-cf.ramon3525.workers.dev/mcp"
+      "url": "https://askhuman.app/mcp"
     }
   }
 }
