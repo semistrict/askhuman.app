@@ -92,9 +92,35 @@ export default function Home() {
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
-                Codex
+                Codex (CLI)
               </div>
               <pre className="text-xs whitespace-pre leading-relaxed">{`codex mcp add askhuman --url https://askhuman.app/mcp`}</pre>
+            </div>
+            <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
+              <div className="text-xs text-muted-foreground mb-2">
+                Codex (App)
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Add this to{" "}
+                <code className="bg-muted px-1 py-0.5 rounded">
+                  ~/.agents/plugins/marketplace.json
+                </code>
+                :
+              </p>
+              <pre className="text-xs whitespace-pre leading-relaxed mt-2">{`{
+  "name": "askhuman",
+  "plugins": [{
+    "name": "askhuman.app",
+    "source": {
+      "source": "github",
+      "repo": "semistrict/askhuman.app",
+      "path": "plugins/askhuman.app"
+    }
+  }]
+}`}</pre>
+              <p className="text-xs text-muted-foreground mt-2">
+                Then open Plugins in the Codex app and install.
+              </p>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
