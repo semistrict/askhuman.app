@@ -94,9 +94,7 @@ export default function Home() {
               <div className="text-xs text-muted-foreground mb-2">
                 Codex
               </div>
-              <pre className="text-xs whitespace-pre leading-relaxed">{`# add the marketplace, then install
-codex plugin marketplace add semistrict/askhuman.app
-codex plugin install askhuman.app@askhuman`}</pre>
+              <pre className="text-xs whitespace-pre leading-relaxed">{`codex mcp add askhuman --url https://askhuman.app/mcp`}</pre>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
               <div className="text-xs text-muted-foreground mb-2">
