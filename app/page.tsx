@@ -1,151 +1,47 @@
 export default function Home() {
   return (
-    <div className="flex flex-1 items-center justify-center px-6 py-16">
-      <div className="max-w-2xl w-full font-mono">
-        {/* Hero */}
-        <div className="mb-12">
-          <div className="text-muted-foreground text-xs mb-3 tracking-widest uppercase">
-            v1.0.0
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tighter mb-4">
+    <div className="flex flex-1 items-center justify-center px-6">
+      <div className="max-w-xl w-full font-mono space-y-10">
+        <div>
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tighter">
             askhuman
             <span className="text-muted-foreground font-normal">.app</span>
           </h1>
-          <p className="text-lg text-muted-foreground leading-relaxed">
-            Sometimes your AI agent needs to phone a friend.
-            <br />
-            <span className="text-foreground">
-              Human-in-the-loop review tools for AI agents.
-            </span>
+          <p className="text-muted-foreground mt-2">
+            Human-in-the-loop review tools for AI agents.
           </p>
         </div>
 
-        {/* Usage block styled like a man page */}
-        <div className="mb-10 border border-border rounded-lg p-5 bg-card">
-          <div className="text-xs text-muted-foreground mb-3 uppercase tracking-wider">
-            Synopsis
-          </div>
-          <div className="text-sm leading-relaxed space-y-1">
-            <p>
-              <span className="text-muted-foreground">$</span> agent submits
-              plan
-            </p>
-            <p>
-              <span className="text-muted-foreground">$</span> human reviews in
-              browser, posts comments
-            </p>
-            <p>
-              <span className="text-muted-foreground">$</span> agent reads
-              feedback, replies
-            </p>
-            <p>
-              <span className="text-muted-foreground">$</span> loop until human
-              returns{" "}
-              <span className="text-green-600 dark:text-green-400">
-                {"{ status: \"done\" }"}
-              </span>
-            </p>
-          </div>
-        </div>
-
-        {/* Interfaces */}
-        <div className="mb-10">
-          <h2 className="text-xs text-muted-foreground mb-4 uppercase tracking-wider">
-            Interfaces
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="border border-border rounded-lg p-4 bg-card">
-              <div className="text-sm font-semibold mb-2">MCP</div>
-              <code className="text-xs text-muted-foreground block mb-2 break-all">
-                https://askhuman.app/mcp
-              </code>
-              <p className="text-xs text-muted-foreground">
-                Streamable HTTP. Works with Claude Code, Codex, and any MCP
-                client. Tools: submit_plan, get_comments, reply_to_comments.
-              </p>
-            </div>
-            <div className="border border-border rounded-lg p-4 bg-card">
-              <div className="text-sm font-semibold mb-2">REST</div>
-              <code className="text-xs text-muted-foreground block mb-2 break-all">
-                https://askhuman.app/plan
-              </code>
-              <p className="text-xs text-muted-foreground">
-                Plain HTTP + JSON. Long-polling. Use curl, fetch, or whatever
-                your agent speaks.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick start */}
-        <div className="mb-10">
-          <h2 className="text-xs text-muted-foreground mb-4 uppercase tracking-wider">
-            Quick Start
-          </h2>
-          <div className="space-y-3 text-sm">
-            <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
-              <div className="text-xs text-muted-foreground mb-2">
-                Claude Code
-              </div>
-              <pre className="text-xs whitespace-pre leading-relaxed">{`/plugin marketplace add semistrict/askhuman.app
+        <div className="space-y-4 text-sm">
+          <div>
+            <div className="text-muted-foreground text-xs mb-1">Claude Code</div>
+            <pre className="text-foreground">{`/plugin marketplace add semistrict/askhuman.app
 /plugin install askhuman.app@askhuman`}</pre>
+          </div>
+          <div>
+            <div className="text-muted-foreground text-xs mb-1">Codex</div>
+            <pre className="text-foreground">{`codex mcp add askhuman --url https://askhuman.app/mcp`}</pre>
+          </div>
+          <div>
+            <div className="text-muted-foreground text-xs mb-1">
+              Any agent
             </div>
-            <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
-              <div className="text-xs text-muted-foreground mb-2">
-                Codex (CLI)
-              </div>
-              <pre className="text-xs whitespace-pre leading-relaxed">{`codex mcp add askhuman --url https://askhuman.app/mcp`}</pre>
-            </div>
-            <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
-              <div className="text-xs text-muted-foreground mb-2">
-                Codex (App)
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Add this to{" "}
-                <code className="bg-muted px-1 py-0.5 rounded">
-                  ~/.agents/plugins/marketplace.json
-                </code>
-                :
-              </p>
-              <pre className="text-xs whitespace-pre leading-relaxed mt-2">{`{
-  "name": "askhuman",
-  "plugins": [{
-    "name": "askhuman.app",
-    "source": {
-      "source": "github",
-      "repo": "semistrict/askhuman.app",
-      "path": "plugins/askhuman.app"
-    }
-  }]
-}`}</pre>
-              <p className="text-xs text-muted-foreground mt-2">
-                Then open Plugins in the Codex app and install.
-              </p>
-            </div>
-            <div className="border border-border rounded-lg p-4 bg-card overflow-x-auto">
-              <div className="text-xs text-muted-foreground mb-2">
-                Any agent (zero install)
-              </div>
-              <pre className="text-xs whitespace-pre leading-relaxed">{`curl https://askhuman.app`}</pre>
-              <p className="text-xs text-muted-foreground mt-2">
-                That{"'"}s it. Auto-creates a session and prints everything.
-              </p>
-            </div>
+            <pre className="text-foreground">curl https://askhuman.app</pre>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-border pt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="text-xs text-muted-foreground">
-            Runs on Cloudflare Workers + Durable Objects.
-            <br />
-            Humans run on coffee, presumably.
-          </div>
+        <div className="text-xs text-muted-foreground flex gap-4">
           <a
             href="https://github.com/semistrict/askhuman.app"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+            className="hover:text-foreground transition-colors underline underline-offset-2"
           >
             github
+          </a>
+          <a
+            href="/llms.txt"
+            className="hover:text-foreground transition-colors underline underline-offset-2"
+          >
+            llms.txt
           </a>
         </div>
       </div>
