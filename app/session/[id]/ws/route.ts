@@ -1,4 +1,4 @@
-import { PlanSession } from "@/worker/plan-session";
+import { SessionDO } from "@/worker/session";
 
 export async function GET(
   request: Request,
@@ -10,8 +10,8 @@ export async function GET(
   }
 
   const { id } = await params;
-  const session = PlanSession.getInstance(id);
-  // Forward WebSocket upgrade to DO — construct a fresh Request with the upgrade headers
+  const session = SessionDO.getInstance(id);
+  // Forward WebSocket upgrade to DO -- construct a fresh Request with the upgrade headers
   const url = new URL(request.url);
   return session.fetch(url.toString(), {
     headers: request.headers,

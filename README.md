@@ -2,22 +2,11 @@
 
 Human-in-the-loop review tools for AI agents. Sometimes your agent needs to phone a friend.
 
-Agents submit plans via MCP or REST API. Humans review in their browser with threaded, line-specific comments. Agents reply. Loop until done.
+Agents submit plans or diffs via curl. Humans review in their browser with threaded, line-specific comments. Agents poll and reply with curl. Loop until done.
 
 **Live at [askhuman.app](https://askhuman.app)**
 
 ## Quick Start
-
-**Claude Code:**
-```
-/plugin marketplace add semistrict/askhuman.app
-/plugin install askhuman.app@askhuman
-```
-
-**Codex:**
-```
-codex mcp add askhuman --url https://askhuman.app/mcp
-```
 
 **Any agent (zero install):**
 ```
@@ -36,7 +25,6 @@ curl https://askhuman.app
 
 | Interface | Endpoint | Use |
 |-----------|----------|-----|
-| MCP | `https://askhuman.app/mcp` | Claude Code, Codex, any MCP client |
 | REST | `https://askhuman.app/plan` | curl, fetch, any HTTP client |
 | Browser | `https://askhuman.app/session/{id}` | Human reviewer UI |
 
@@ -45,7 +33,7 @@ curl https://askhuman.app
 ```bash
 pnpm install
 pnpm run dev:vinext    # local dev server on port 3001
-pnpm exec playwright test  # run tests (17 total: 10 REST + 7 MCP)
+pnpm exec playwright test  # run tests
 pnpm run deploy        # deploy to Cloudflare Workers
 ```
 
@@ -55,14 +43,10 @@ Requires: Node.js, pnpm, wrangler (Cloudflare CLI).
 
 - **Runtime:** Cloudflare Workers + Durable Objects (SQLite storage)
 - **Framework:** vinext (Vite-based Next.js for Cloudflare)
-- **MCP:** `@modelcontextprotocol/server` with Streamable HTTP transport
 - **Real-time:** WebSocket (hibernation API) for browser updates
 
-Two Durable Objects:
-- `PlanSession` — stores plans, threads, messages (SQLite). Handles WebSocket for browser clients and long-polling for agents.
-- `McpSession` — holds MCP server + transport per session. Routes MCP tool calls to PlanSession.
-
-Shared interaction layer (`lib/plan-review.ts`) eliminates duplication between REST and MCP interfaces.
+One Durable Object:
+- `SessionDO` — stores plans/diffs, threads, messages, and review views (SQLite). Handles WebSocket for browser clients and long-polling for curl-based agents.
 
 ## Security Model
 

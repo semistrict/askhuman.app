@@ -1,8 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { env } from "cloudflare:workers";
 
+const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
 export interface Thread {
   id: number;
+  hunk_id: number | null;
   line: number | null;
   created_at: number;
   messages: Message[];
@@ -17,7 +20,7 @@ export interface Message {
 }
 
 type Waiter = {
-  resolve: (value: { threads: Thread[] }) => void;
+  resolve: (value: { threads: Thread[]; done?: boolean }) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
@@ -26,13 +29,13 @@ type ActivityWaiter = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-export class PlanSession extends DurableObject {
+export class SessionDO extends DurableObject {
   private waiters: Waiter[] = [];
   private activityWaiters: ActivityWaiter[] = [];
 
   static getInstance(id: string) {
-    const doId = env.PLAN_SESSION.idFromName(id);
-    return env.PLAN_SESSION.get(doId) as DurableObjectStub<PlanSession>;
+    const doId = env.SESSION.idFromName(id);
+    return env.SESSION.get(doId) as DurableObjectStub<SessionDO>;
   }
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
@@ -53,7 +56,29 @@ export class PlanSession extends DurableObject {
           created_at INTEGER
         );
         CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value INTEGER);
+        CREATE TABLE IF NOT EXISTS hunks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path TEXT NOT NULL,
+          old_start INTEGER NOT NULL,
+          old_count INTEGER NOT NULL,
+          new_start INTEGER NOT NULL,
+          new_count INTEGER NOT NULL,
+          header TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS views (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          description TEXT NOT NULL,
+          hunk_ids TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
       `);
+      try {
+        ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN hunk_id INTEGER");
+      } catch {
+        // Column already exists
+      }
     });
 
   }
@@ -73,28 +98,42 @@ export class PlanSession extends DurableObject {
     return rows.length > 0 && rows[0].value === 1;
   }
 
-  async setPlan(markdown: string): Promise<void> {
+  async setContent(content: string): Promise<void> {
     const sql = this.ctx.storage.sql;
-    // Replace any existing plan
     sql.exec("DELETE FROM plan");
-    sql.exec("INSERT INTO plan (markdown, created_at) VALUES (?, ?)", markdown, Date.now());
+    sql.exec("INSERT INTO plan (markdown, created_at) VALUES (?, ?)", content, Date.now());
   }
 
-  async getPlan(): Promise<{ markdown: string; created_at: number } | null> {
+  async getContent(): Promise<{ content: string; created_at: number } | null> {
     const sql = this.ctx.storage.sql;
     const rows = sql.exec<{ markdown: string; created_at: number }>(
       "SELECT markdown, created_at FROM plan LIMIT 1"
     ).toArray();
-    return rows.length > 0 ? rows[0] : null;
+    return rows.length > 0 ? { content: rows[0].markdown, created_at: rows[0].created_at } : null;
   }
 
-  async createThread(line: number | null, text: string): Promise<Thread> {
+  async setContentType(type: "plan" | "diff"): Promise<void> {
+    const value = type === "diff" ? 1 : 0;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('content_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  async getContentType(): Promise<"plan" | "diff"> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'content_type'"
+    ).toArray();
+    return rows.length > 0 && rows[0].value === 1 ? "diff" : "plan";
+  }
+
+  async createThread(line: number | null, text: string, hunkId?: number | null): Promise<Thread> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
 
     sql.exec(
-      "INSERT INTO threads (line, created_at) VALUES (?, ?)",
-      line, now
+      "INSERT INTO threads (line, hunk_id, created_at) VALUES (?, ?, ?)",
+      line, hunkId ?? null, now
     );
     const threadId = sql.exec<{ id: number }>(
       "SELECT last_insert_rowid() as id"
@@ -110,6 +149,7 @@ export class PlanSession extends DurableObject {
 
     const thread: Thread = {
       id: threadId,
+      hunk_id: hunkId ?? null,
       line,
       created_at: now,
       messages: [{ id: messageId, thread_id: threadId, role: "human", text, created_at: now }],
@@ -153,30 +193,112 @@ export class PlanSession extends DurableObject {
     return message;
   }
 
+  async storeHunks(hunks: { filePath: string; oldStart: number; oldCount: number; newStart: number; newCount: number; header: string; content: string }[]) {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    const meta: { id: number; file: string; oldStart: number; oldCount: number; newStart: number; newCount: number; preview: { first: string; last: string } }[] = [];
+    for (const h of hunks) {
+      sql.exec(
+        "INSERT INTO hunks (file_path, old_start, old_count, new_start, new_count, header, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        h.filePath, h.oldStart, h.oldCount, h.newStart, h.newCount, h.header, h.content, now
+      );
+      const id = sql.exec<{ id: number }>("SELECT last_insert_rowid() as id").one().id;
+      const lines = h.content.split("\n").filter((l) => l.startsWith("+") || l.startsWith("-"));
+      meta.push({
+        id,
+        file: h.filePath,
+        oldStart: h.oldStart,
+        oldCount: h.oldCount,
+        newStart: h.newStart,
+        newCount: h.newCount,
+        preview: {
+          first: lines[0]?.slice(1) ?? "",
+          last: lines.length > 1 ? lines[lines.length - 1].slice(1) : "",
+        },
+      });
+    }
+    return meta;
+  }
+
+  async getHunkMeta() {
+    const sql = this.ctx.storage.sql;
+    const rows = sql.exec<{ id: number; file_path: string; old_start: number; old_count: number; new_start: number; new_count: number; content: string }>(
+      "SELECT id, file_path, old_start, old_count, new_start, new_count, content FROM hunks ORDER BY id"
+    ).toArray();
+    return rows.map((r) => {
+      const lines = r.content.split("\n").filter((l) => l.startsWith("+") || l.startsWith("-"));
+      return {
+        id: r.id,
+        file: r.file_path,
+        oldStart: r.old_start,
+        oldCount: r.old_count,
+        newStart: r.new_start,
+        newCount: r.new_count,
+        preview: {
+          first: lines[0]?.slice(1) ?? "",
+          last: lines.length > 1 ? lines[lines.length - 1].slice(1) : "",
+        },
+      };
+    });
+  }
+
+  async getHunksByIds(ids: number[]) {
+    if (ids.length === 0) return [];
+    const sql = this.ctx.storage.sql;
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = sql.exec<{ id: number; file_path: string; old_start: number; old_count: number; new_start: number; new_count: number; header: string; content: string }>(
+      `SELECT id, file_path, old_start, old_count, new_start, new_count, header, content FROM hunks WHERE id IN (${placeholders}) ORDER BY id`,
+      ...ids
+    ).toArray();
+    return rows.map((r) => ({
+      id: r.id,
+      filePath: r.file_path,
+      oldStart: r.old_start,
+      oldCount: r.old_count,
+      newStart: r.new_start,
+      newCount: r.new_count,
+      header: r.header,
+      content: r.content,
+    }));
+  }
+
+  async setView(description: string, hunkIds: number[]): Promise<void> {
+    const sql = this.ctx.storage.sql;
+    sql.exec(
+      "INSERT INTO views (description, hunk_ids, created_at) VALUES (?, ?, ?)",
+      description, JSON.stringify(hunkIds), Date.now()
+    );
+    this.broadcast({ type: "view", description, hunkIds });
+  }
+
+  async getView(): Promise<{ description: string; hunkIds: number[] } | null> {
+    const sql = this.ctx.storage.sql;
+    const rows = sql.exec<{ description: string; hunk_ids: string }>(
+      "SELECT description, hunk_ids FROM views ORDER BY id DESC LIMIT 1"
+    ).toArray();
+    if (rows.length === 0) return null;
+    return { description: rows[0].description, hunkIds: JSON.parse(rows[0].hunk_ids) };
+  }
+
   async getThreads(): Promise<Thread[]> {
     const sql = this.ctx.storage.sql;
-    const threadRows = sql.exec<{ id: number; line: number | null; created_at: number }>(
-      "SELECT id, line, created_at FROM threads ORDER BY id"
+    const threadRows = sql.exec<{ id: number; hunk_id: number | null; line: number | null; created_at: number }>(
+      "SELECT id, hunk_id, line, created_at FROM threads ORDER BY id"
     ).toArray();
 
     const threads: Thread[] = [];
     for (const t of threadRows) {
-      const messages = sql.exec<Message>(
+      const messages = sql.exec(
         "SELECT id, thread_id, role, text, created_at FROM messages WHERE thread_id = ? ORDER BY id",
         t.id
-      ).toArray();
+      ).toArray() as unknown as Message[];
       threads.push({ ...t, messages });
     }
     return threads;
   }
 
-  async waitForComments(timeoutMs: number = 120000): Promise<{ threads: Thread[]; done?: boolean }> {
+  async waitForComments(timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS): Promise<{ threads: Thread[]; done?: boolean }> {
     const sql = this.ctx.storage.sql;
-
-    // Check if review is done
-    if (await this.isDone()) {
-      return { threads: [], done: true };
-    }
 
     // Get or initialize agent cursor
     const cursorRows = sql.exec<{ value: number }>(
@@ -190,17 +312,21 @@ export class PlanSession extends DurableObject {
       cursor
     ).toArray();
 
+    const done = await this.isDone();
+
     if (newMessages.length > 0) {
-      // Return all threads with messages since cursor
-      return this.collectAndAdvanceCursor(cursor);
+      return { ...this.collectAndAdvanceCursor(cursor), done: done || undefined };
+    }
+
+    // Already done with no unread comments — return immediately
+    if (done) {
+      return { threads: [], done: true };
     }
 
     // Wait for new activity
     return new Promise<{ threads: Thread[] }>((resolve) => {
       const timer = setTimeout(() => {
-        // Remove this waiter
         this.waiters = this.waiters.filter((w) => w.resolve !== resolve);
-        // Return empty on timeout — re-read cursor at that point
         const currentCursorRows = sql.exec<{ value: number }>(
           "SELECT value FROM state WHERE key = 'agent_cursor'"
         ).toArray();
@@ -227,7 +353,6 @@ export class PlanSession extends DurableObject {
   private collectThreadsSinceCursor(cursor: number): { threads: Thread[] } {
     const sql = this.ctx.storage.sql;
 
-    // Get thread IDs that have new human messages
     const threadIds = sql.exec<{ thread_id: number }>(
       "SELECT DISTINCT thread_id FROM messages WHERE id > ? AND role = 'human'",
       cursor
@@ -239,15 +364,15 @@ export class PlanSession extends DurableObject {
 
     const threads: Thread[] = [];
     for (const tid of threadIds) {
-      const threadRows = sql.exec<{ id: number; line: number | null; created_at: number }>(
-        "SELECT id, line, created_at FROM threads WHERE id = ?", tid
+      const threadRows = sql.exec<{ id: number; hunk_id: number | null; line: number | null; created_at: number }>(
+        "SELECT id, hunk_id, line, created_at FROM threads WHERE id = ?", tid
       ).toArray();
       if (threadRows.length === 0) continue;
       const t = threadRows[0];
-      const messages = sql.exec<Message>(
+      const messages = sql.exec(
         "SELECT id, thread_id, role, text, created_at FROM messages WHERE thread_id = ? ORDER BY id",
         tid
-      ).toArray();
+      ).toArray() as unknown as Message[];
       threads.push({ ...t, messages });
     }
 
@@ -293,7 +418,6 @@ export class PlanSession extends DurableObject {
       }
     }
 
-    // Also notify activity waiters (no cursor advancement)
     const activityWaiters = this.activityWaiters;
     this.activityWaiters = [];
     for (const w of activityWaiters) {
@@ -302,11 +426,7 @@ export class PlanSession extends DurableObject {
     }
   }
 
-  /**
-   * Wait for any new human activity (comments or done) without advancing the cursor.
-   * Used by MCP watcher to detect changes without interfering with REST API polling.
-   */
-  async waitForActivity(timeoutMs: number = 120000): Promise<{ done: boolean }> {
+  async waitForActivity(timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS): Promise<{ done: boolean }> {
     if (await this.isDone()) return { done: true };
 
     return new Promise<{ done: boolean }>((resolve) => {
@@ -330,7 +450,6 @@ export class PlanSession extends DurableObject {
     }
   }
 
-  // WebSocket upgrade handler — only handles WS requests
   async fetch(request: Request): Promise<Response> {
     const upgradeHeader = request.headers.get("Upgrade");
     if (upgradeHeader !== "websocket") {
@@ -343,7 +462,6 @@ export class PlanSession extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
-    // Complete the WebSocket close handshake
     ws.close(code, reason);
   }
 }

@@ -9,13 +9,12 @@
   "homepage": "https://askhuman.app",
   "repository": "https://github.com/semistrict/askhuman.app",
   "license": "MIT",
-  "keywords": ["review", "plan", "collaboration", "human-in-the-loop"],
+  "keywords": ["review", "plan", "diff", "collaboration", "human-in-the-loop", "code-review"],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "askhuman.app",
     "shortDescription": "Human-in-the-loop review tools for AI agents",
-    "longDescription": "Sometimes your agent needs to phone a friend. Submit plans for human review, get threaded feedback, reply — all via MCP tools.",
+    "longDescription": "Sometimes your agent needs to phone a friend. Submit plans or diffs for human review with curl, get threaded feedback, and reply from the terminal.",
     "developerName": "askhuman.app",
     "category": "Productivity",
     "capabilities": ["Read"]

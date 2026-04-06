@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "askhuman": {
-      "type": "http",
-      "url": "https://askhuman.app/mcp"
-    }
-  }
-}

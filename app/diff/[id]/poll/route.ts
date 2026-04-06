@@ -7,6 +7,11 @@ export async function GET(
 ) {
   const { id } = await params;
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
-  const result = await pollComments(id, REST_POLL_TIMEOUT_MS, baseUrl);
+  const result = await pollComments(
+    id,
+    REST_POLL_TIMEOUT_MS,
+    baseUrl,
+    "diff"
+  );
   return negotiatedResponse(request, result, pollMarkdown(result));
 }

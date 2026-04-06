@@ -18,7 +18,8 @@ export async function POST(
     id,
     body.replies,
     REST_POLL_TIMEOUT_MS,
-    baseUrl
+    baseUrl,
+    "diff"
   );
   return negotiatedResponse(request, result, replyMarkdown(result));
 }

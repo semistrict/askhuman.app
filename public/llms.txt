@@ -1,6 +1,6 @@
 # askhuman.app - Human-in-the-loop review tools for AI agents
 
-> Sometimes your AI agent needs to phone a friend. Submit plans for human review via MCP or REST API. Humans review in their browser with threaded, line-specific comments. Agents reply and loop until done.
+> Sometimes your AI agent needs to phone a friend. Submit plans or diffs for human review via curl and REST. Humans review in their browser with threaded, line-specific comments. Agents reply and loop until done.
 
 ## Quick Start (curl)
 
@@ -10,27 +10,41 @@ curl https://askhuman.app
 
 Detects curl and prints session-specific instructions.
 
-## Quick Start (MCP)
-
-Endpoint: `https://askhuman.app/mcp` (Streamable HTTP)
-
-Tools: `submit_plan`, `get_comments`, `reply_to_comments`
-
 ## REST API
 
+### Plan Review
+
 - [Submit plan](https://askhuman.app/plan): POST with markdown body - creates session, returns `{ sessionId, url, instructions }`
-- [Poll for comments](https://askhuman.app/plan/{id}/poll): GET - long-polls up to 2 min, returns `{ status, threads }`. Status: "comments", "timeout", or "done".
+- [Poll for comments](https://askhuman.app/plan/{id}/poll): GET - long-polls up to 10 min, returns `{ status, threads }`. Status: "comments", "timeout", or "done".
 - [Reply + auto-poll](https://askhuman.app/plan/{id}/reply): POST with JSON `{ "replies": [{ "threadId": 1, "text": "..." }] }` - replies then polls for next round.
 
+### Diff Review
+
+- [Submit diff](https://askhuman.app/diff): POST with diff body - parses into hunks, returns `{ sessionId, hunks: [{ id, file, oldStart, newStart, oldCount, newCount, preview }] }`
+- [Show hunks](https://askhuman.app/diff/{id}/view): POST with `{ "hunkIds": [1, 3], "description": "..." }` - selects hunks to display, returns `{ sessionId, url }`
+- [Poll for comments](https://askhuman.app/diff/{id}/poll): GET - same long-poll behavior as plan review.
+- [Reply + auto-poll](https://askhuman.app/diff/{id}/reply): POST - same reply behavior as plan review.
 
 ## Workflow
 
-1. Submit plan: `POST /plan` with markdown → `{ sessionId, url, instructions }`
+### Plan Review
+1. Submit plan: `POST /plan` with markdown -> `{ sessionId, url, instructions }`
 2. Open the URL for the human reviewer
-3. Poll: `GET /plan/{id}/poll` → blocks until comments or timeout
-4. Reply: `POST /plan/{id}/reply` with `{ replies: [{threadId, text}] }` → replies + auto-polls
+3. Poll: `GET /plan/{id}/poll` -> blocks until comments or timeout
+4. Reply: `POST /plan/{id}/reply` with `{ replies: [{threadId, text}] }` -> replies + auto-polls
 5. Loop 3-4 until status is "done"
+When poll status is `"comments"`, the agent should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
+
+### Diff Review
+1. Submit diff: `POST /diff` with diff text -> `{ sessionId, hunks }`
+2. Select hunks: `POST /diff/{id}/view` with `{ hunkIds, description }` -> `{ url }`
+3. Open the URL for the human reviewer (shows selected hunks with your description)
+4. Poll: `GET /diff/{id}/poll` -> blocks until comments or timeout
+5. Reply: `POST /diff/{id}/reply` with `{ replies: [{threadId, text}] }` -> replies + auto-polls
+6. Optionally call `POST /diff/{id}/view` again to show different hunks
+7. Loop 4-6 until status is "done"
+When poll status is `"comments"`, the agent should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
 
 ## Data Model
 
-Threads have an optional `line` field (null for general comments, number for line-specific). Each thread contains messages with `role` ("human" or "agent") and `text`.
+Threads have optional `hunk_id` and `line` fields. For plan review, `line` is a markdown line number. For diff review, `hunk_id` identifies the hunk and `line` is the offset within that hunk. Null for general comments. Each thread contains messages with `role` ("human" or "agent") and `text`.

@@ -9,7 +9,6 @@
   "homepage": "https://askhuman.app",
   "repository": "https://github.com/semistrict/askhuman.app",
   "license": "MIT",
-  "keywords": ["review", "plan", "collaboration", "human-in-the-loop"],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  "keywords": ["review", "plan", "diff", "collaboration", "human-in-the-loop", "code-review"],
+  "skills": "./skills/"
 }

@@ -1,20 +1,21 @@
-import { createSession, submitPlan } from "@/lib/plan-review";
+import { createSession } from "@/lib/plan-review";
+import { submitDiff } from "@/lib/diff-review";
 import {
+  diffSubmitMarkdown,
   errorMarkdown,
   negotiatedResponse,
-  planSubmitMarkdown,
 } from "@/lib/rest-response";
 
 export async function POST(request: Request) {
   const id = createSession();
-  const markdown = await request.text();
+  const diff = await request.text();
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
-  const result = await submitPlan(id, markdown, baseUrl);
-  return negotiatedResponse(request, result, planSubmitMarkdown(result));
+  const result = await submitDiff(id, diff, baseUrl);
+  return negotiatedResponse(request, result, diffSubmitMarkdown(result));
 }
 
 export async function GET(request: Request) {
-  const error = { error: "POST a markdown body to create a plan review session" };
+  const error = { error: "POST a diff body to create a diff review session" };
   return negotiatedResponse(
     request,
     error,

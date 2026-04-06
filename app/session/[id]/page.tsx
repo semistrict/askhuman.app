@@ -1,6 +1,7 @@
-import { PlanSession } from "@/worker/plan-session";
-import type { Thread } from "@/worker/plan-session";
+import { SessionDO } from "@/worker/session";
+import type { Thread } from "@/worker/session";
 import { ReviewClient } from "./review-client";
+import { DiffReviewClient } from "./diff-review-client";
 
 export default async function SessionPage({
   params,
@@ -8,24 +9,39 @@ export default async function SessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = PlanSession.getInstance(id);
-  const plan = await session.getPlan();
+  const session = SessionDO.getInstance(id);
+  const contentType = await session.getContentType();
 
-  if (!plan) {
+  if (contentType === "diff") {
+    const threads: Thread[] = await session.getThreads();
+    const view = await session.getView();
+    const hunks = view ? await session.getHunksByIds(view.hunkIds) : [];
+    return (
+      <DiffReviewClient
+        sessionId={id}
+        hunks={hunks}
+        description={view?.description ?? null}
+        initialThreads={threads}
+      />
+    );
+  }
+
+  const data = await session.getContent();
+  if (!data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-muted-foreground">No plan found for this session.</p>
+        <p className="text-muted-foreground">No content found for this session.</p>
       </div>
     );
   }
 
   const threads: Thread[] = await session.getThreads();
-  const planLines = plan.markdown.split("\n");
+  const lines = data.content.split("\n");
 
   return (
     <ReviewClient
       sessionId={id}
-      planLines={planLines}
+      planLines={lines}
       initialThreads={threads}
     />
   );
