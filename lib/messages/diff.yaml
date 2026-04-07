@@ -50,4 +50,5 @@ diff_description_section_too_long: >-
 diff_description_too_little_prose: >-
   The description has only {PROSE_LINES} lines of prose for a
   {DIFF_LINES}-line diff ({PERCENT}%). Write at least 15% as many
-  lines of description as the diff to give the reviewer context.
+  lines of description as the diff (capped at 200 lines) to give
+  the reviewer context.

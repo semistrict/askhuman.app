@@ -47,11 +47,11 @@ function validateDescription(description: string, diffLineCount: number): void {
     }
   }
 
-  // Prose must be at least 15% of diff size
+  // Prose must be at least 15% of diff size, capped at 200 lines
   const proseLines = lines.filter(
     (l) => l.trim().length > 0 && !/^#{1,6}\s/.test(l) && !/^```/.test(l) && !/^---$/.test(l)
   ).length;
-  const minProse = Math.ceil(diffLineCount * 0.15);
+  const minProse = Math.min(200, Math.ceil(diffLineCount * 0.15));
   if (proseLines < minProse) {
     const percent = diffLineCount > 0 ? Math.round((proseLines / diffLineCount) * 100) : 0;
     throw new RequestHunksValidationError(
