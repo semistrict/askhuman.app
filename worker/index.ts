@@ -102,8 +102,12 @@ function handleRootHtml(): Response {
   }
   .tab:hover { color: #b0aca6; }
   .tab.active { color: #e8e4e0; border-bottom-color: #e8e4e0; }
+  .panel-container {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
   .panel {
-    display: none;
+    grid-row: 1; grid-column: 1;
     background: #1a1816;
     border: 1px solid #2a2724;
     border-top: none;
@@ -112,9 +116,10 @@ function handleRootHtml(): Response {
     position: relative;
     cursor: pointer;
     transition: border-color 0.15s;
+    visibility: hidden;
+    pointer-events: none;
   }
-  .panel.active { display: block; }
-  .panel-container { min-height: 8.5rem; }
+  .panel.active { visibility: visible; pointer-events: auto; }
   .panel:hover { border-color: #4a4540; }
   .panel pre {
     font-family: inherit; font-size: 0.8125rem;
