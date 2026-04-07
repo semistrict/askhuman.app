@@ -161,7 +161,7 @@ export function DiffReviewClient({
   }, [hunks]);
 
   // Parse description into sections with headings
-  type Section = { id: string; heading: string; level: number; markdown: string; fileHunks: ServerHunk[] };
+  type Section = { id: string; heading: string; level: number; markdown: string; fileHunks: ServerHunk[]; collapsed: boolean };
   const sections = useMemo(() => {
     if (!description) return [];
     const lines = description.split("\n");
@@ -174,16 +174,30 @@ export function DiffReviewClient({
 
     function flush() {
       if (currentHeading || currentLines.length > 0) {
-        const headingText = currentHeading.replace(/^#+\s*/, "").trim();
-        // Check if heading matches a file path in the diff
-        const matchedHunks = hunksByFile.get(headingText);
-        if (matchedHunks) usedFiles.add(headingText);
+        let headingText = currentHeading.replace(/^#+\s*/, "").trim();
+        const collapsed = /\(collapsed\)\s*$/i.test(headingText);
+        if (collapsed) {
+          headingText = headingText.replace(/\s*\(collapsed\)\s*$/i, "").trim();
+          // Also strip from the markdown line
+          currentLines[0] = currentLines[0].replace(/\s*\(collapsed\)\s*$/i, "");
+        }
+        const sectionText = currentLines.join("\n");
+        // Match files: heading is exact file path, or file path appears in section body
+        const matched: ServerHunk[] = [];
+        for (const [fp, fh] of hunksByFile) {
+          if (usedFiles.has(fp)) continue;
+          if (headingText === fp || sectionText.includes(fp)) {
+            matched.push(...fh);
+            usedFiles.add(fp);
+          }
+        }
         result.push({
           id: `section-${sectionIndex++}`,
           heading: headingText,
           level: currentLevel,
-          markdown: currentLines.join("\n").trim(),
-          fileHunks: matchedHunks ?? [],
+          markdown: sectionText.trim(),
+          fileHunks: matched,
+          collapsed,
         });
       }
       currentLines = [];
@@ -349,16 +363,17 @@ export function DiffReviewClient({
 
         <main className="flex-1 overflow-y-auto px-6 py-8">
           <section className="space-y-6">
-            {sections.map((section) => (
-              <div key={section.id} id={section.id}>
-                {section.markdown && (
-                  <div className="prose prose-sm max-w-none text-sm text-foreground mb-4">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
-                      {section.markdown}
-                    </ReactMarkdown>
-                  </div>
-                )}
-                {section.fileHunks.map((hunk, hunkIdx) => {
+            {sections.map((section) => {
+              const sectionContent = (
+                <>
+                  {section.markdown && (
+                    <div className="prose prose-sm max-w-none text-sm text-foreground mb-4">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+                        {section.markdown}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                  {section.fileHunks.map((hunk, hunkIdx) => {
                   const language = detectLanguage(hunk.filePath);
                   const diffLines = parseHunkContent(hunk);
                   const additionsOnly = isAdditionsOnlyHunk(diffLines);
@@ -497,8 +512,26 @@ export function DiffReviewClient({
                     </div>
                   );
                 })}
-              </div>
-            ))}
+                </>
+              );
+
+              return (
+                <div key={section.id} id={section.id}>
+                  {section.collapsed ? (
+                    <details className="rounded-lg border border-border overflow-hidden">
+                      <summary className="px-4 py-2 bg-muted/30 cursor-pointer text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
+                        {section.heading}
+                      </summary>
+                      <div className="p-2">
+                        {sectionContent}
+                      </div>
+                    </details>
+                  ) : (
+                    sectionContent
+                  )}
+                </div>
+              );
+            })}
           </section>
         </main>
 
