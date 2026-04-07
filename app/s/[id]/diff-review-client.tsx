@@ -241,7 +241,7 @@ export function DiffReviewClient({
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="h-screen bg-background text-foreground flex flex-col">
       <header className="border-b border-border px-6 py-4 shrink-0">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold tracking-tight font-mono">
