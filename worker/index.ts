@@ -63,59 +63,77 @@ function handleRootHtml(): Response {
     justify-content: center;
     padding: 2rem;
   }
-  .page { max-width: 540px; width: 100%; }
-  h1 { font-size: 2.5rem; color: #e8e4e0; letter-spacing: -0.04em; margin-bottom: 0.25rem; }
+  .page { max-width: 560px; width: 100%; }
+  h1 { font-size: 2.5rem; color: #e8e4e0; letter-spacing: -0.04em; margin-bottom: 1.5rem; }
   h1 span { font-weight: 400; color: #6b6560; }
-  h1 { margin-bottom: 2.5rem; }
-  .cmd {
+  .hero {
     background: #1a1816;
     border: 1px solid #2a2724;
     border-radius: 6px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
     position: relative;
     cursor: pointer;
     transition: border-color 0.15s;
   }
-  .cmd:hover { border-color: #4a4540; }
-  .cmd pre {
-    font-family: inherit;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-all;
+  .hero:hover { border-color: #4a4540; }
+  .hero pre { font-family: inherit; font-size: 0.8125rem; line-height: 1.6; }
+  .hero .copy {
+    position: absolute; top: 0.6rem; right: 0.75rem;
+    font-size: 0.6875rem; color: #6b6560;
+    opacity: 0; transition: opacity 0.15s; pointer-events: none;
   }
-  .cmd .label {
-    font-size: 0.6875rem;
-    color: #6b6560;
-    margin-bottom: 0.375rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  .hero:hover .copy { opacity: 1; }
+  .hero.copied .copy { color: #7a9f6a; }
+  .hero-note { font-size: 0.6875rem; color: #6b6560; margin-bottom: 1.5rem; }
+  .tabs {
+    display: flex; gap: 0;
+    border-bottom: 1px solid #2a2724;
+    margin-bottom: 0;
   }
-  .cmd .copy {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    font-size: 0.6875rem;
-    color: #6b6560;
-    opacity: 0;
-    transition: opacity 0.15s;
-    pointer-events: none;
+  .tab {
+    flex: 1; padding: 0.5rem 0; text-align: center;
+    font-family: inherit; font-size: 0.6875rem; font-weight: 400;
+    color: #6b6560; background: none; border: none;
+    cursor: pointer; transition: color 0.15s;
+    letter-spacing: 0.03em; text-transform: uppercase;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
   }
-  .cmd:hover .copy { opacity: 1; }
-  .cmd.copied .copy { color: #7a9f6a; }
-  .note {
-    font-size: 0.75rem;
-    color: #6b6560;
-    margin-top: -0.75rem;
-    margin-bottom: 1.5rem;
+  .tab:hover { color: #b0aca6; }
+  .tab.active { color: #e8e4e0; border-bottom-color: #e8e4e0; }
+  .panel {
+    display: none;
+    background: #1a1816;
+    border: 1px solid #2a2724;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 1rem 1.25rem;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .panel.active { display: block; }
+  .panel:hover { border-color: #4a4540; }
+  .panel pre {
+    font-family: inherit; font-size: 0.8125rem;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+  }
+  .panel .copy {
+    position: absolute; top: 0.75rem; right: 0.75rem;
+    font-size: 0.6875rem; color: #6b6560;
+    opacity: 0; transition: opacity 0.15s; pointer-events: none;
+  }
+  .panel:hover .copy { opacity: 1; }
+  .panel.copied .copy { color: #7a9f6a; }
+  .panel-note {
+    font-size: 0.6875rem; color: #6b6560;
+    margin-top: 0.75rem; padding-top: 0.75rem;
+    border-top: 1px solid #2a2724;
   }
   .links {
-    font-size: 0.75rem;
-    display: flex;
-    gap: 1.25rem;
-    margin-top: 2rem;
-    padding-top: 1.5rem;
+    font-size: 0.75rem; display: flex; gap: 1.25rem;
+    margin-top: 1.5rem; padding-top: 1.25rem;
     border-top: 1px solid #2a2724;
   }
   a { color: #8a8580; text-decoration: underline; text-underline-offset: 2px; transition: color 0.15s; }
@@ -126,45 +144,48 @@ function handleRootHtml(): Response {
 <div class="page">
   <h1>askhuman<span>.app</span></h1>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s https://askhuman.app')">
-    <div class="label">Any agent (zero install)</div>
+  <div class="hero" onclick="copyCmd(this, 'curl -s https://askhuman.app')">
     <pre>curl -s https://askhuman.app</pre>
     <span class="copy">copy</span>
   </div>
-  <p class="note">Auto-creates a session and prints everything your agent needs.</p>
+  <p class="hero-note">Detects your agent and prints session-specific instructions.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/diff -F description=@description.md -F diff=@current.diff')">
-    <div class="label">Submit a diff for review</div>
-    <pre>curl -s -X POST https://askhuman.app/diff \
-  -F description=@description.md \
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('diff')">diff</button>
+    <button class="tab" onclick="showTab('plan')">plan</button>
+    <button class="tab" onclick="showTab('files')">files</button>
+    <button class="tab" onclick="showTab('playground')">playground</button>
+  </div>
+
+  <div class="panel active" id="tab-diff" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/diff -F description=@description.md -F diff=@current.diff')">
+    <pre>curl -s -X POST https://askhuman.app/diff \\
+  -F description=@description.md \\
   -F diff=@current.diff</pre>
     <span class="copy">copy</span>
+    <p class="panel-note">Narrated diff review with inline hunks and a table of contents.</p>
   </div>
-  <p class="note">Submits the full diff and description, returns session URL and polling instructions.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s --data-binary @plan.md https://askhuman.app/plan')">
-    <div class="label">Submit a plan for review</div>
-    <pre>curl -s --data-binary @plan.md https://askhuman.app/plan</pre>
+  <div class="panel" id="tab-plan" onclick="copyCmd(this, 'curl -s --data-binary @plan.md https://askhuman.app/plan')">
+    <pre>curl -s --data-binary @plan.md \\
+  https://askhuman.app/plan</pre>
     <span class="copy">copy</span>
+    <p class="panel-note">Line-by-line markdown review with numbered comments.</p>
   </div>
-  <p class="note">Posts markdown and returns session-specific curl commands.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/files -F &quot;src/main.ts=<src/main.ts&quot; -F &quot;src/utils.ts=<src/utils.ts&quot;')">
-    <div class="label">Submit files for review</div>
-    <pre>curl -s -X POST https://askhuman.app/files \
-  -F "src/main.ts=<src/main.ts" \
+  <div class="panel" id="tab-files" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/files -F &quot;src/main.ts=<src/main.ts&quot;')">
+    <pre>curl -s -X POST https://askhuman.app/files \\
+  -F "src/main.ts=<src/main.ts" \\
   -F "src/utils.ts=<src/utils.ts"</pre>
     <span class="copy">copy</span>
+    <p class="panel-note">File selector with syntax highlighting. Field name = path, value = content.</p>
   </div>
-  <p class="note">Field name is the file path, value is the content. Reviewer gets a file selector UI.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/playground -F &quot;html=<playground.html&quot;')">
-    <div class="label">Submit an interactive playground</div>
-    <pre>curl -s -X POST https://askhuman.app/playground \
+  <div class="panel" id="tab-playground" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/playground -F &quot;html=<playground.html&quot;')">
+    <pre>curl -s -X POST https://askhuman.app/playground \\
   -F "html=<playground.html"</pre>
     <span class="copy">copy</span>
+    <p class="panel-note">Any self-contained HTML. Results via postMessage. User interacts, clicks Done.</p>
   </div>
-  <p class="note">Any self-contained HTML. Results returned via postMessage. User interacts, clicks Done.</p>
 
   <div class="links">
     <a href="https://github.com/semistrict/askhuman.app">github</a>
@@ -172,6 +193,12 @@ function handleRootHtml(): Response {
   </div>
 </div>
 <script>
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
 function copyCmd(el, text) {
   navigator.clipboard.writeText(text.replace(/\\\\n/g, '\\n'));
   var span = el.querySelector('.copy');
