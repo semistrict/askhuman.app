@@ -147,7 +147,24 @@ function handleRootHtml(): Response {
     <pre>curl -s --data-binary @plan.md https://askhuman.app/plan</pre>
     <span class="copy">copy</span>
   </div>
-  <p class="note">Use it with the same user you are already interacting with. Posts markdown and returns session-specific curl commands.</p>
+  <p class="note">Posts markdown and returns session-specific curl commands.</p>
+
+  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/files -F &quot;src/main.ts=<src/main.ts&quot; -F &quot;src/utils.ts=<src/utils.ts&quot;')">
+    <div class="label">Submit files for review</div>
+    <pre>curl -s -X POST https://askhuman.app/files \
+  -F "src/main.ts=<src/main.ts" \
+  -F "src/utils.ts=<src/utils.ts"</pre>
+    <span class="copy">copy</span>
+  </div>
+  <p class="note">Field name is the file path, value is the content. Reviewer gets a file selector UI.</p>
+
+  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/playground -F &quot;html=<playground.html&quot;')">
+    <div class="label">Submit an interactive playground</div>
+    <pre>curl -s -X POST https://askhuman.app/playground \
+  -F "html=<playground.html"</pre>
+    <span class="copy">copy</span>
+  </div>
+  <p class="note">Any self-contained HTML. Results returned via postMessage. User interacts, clicks Done.</p>
 
   <div class="links">
     <a href="https://github.com/semistrict/askhuman.app">github</a>
