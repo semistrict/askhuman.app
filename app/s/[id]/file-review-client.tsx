@@ -91,19 +91,21 @@ interface Props {
   sessionId: string;
   files: ServerFile[];
   initialThreads: Thread[];
+  isDone: boolean;
 }
 
 export function FileReviewClient({
   sessionId,
   files,
   initialThreads,
+  isDone: initialIsDone,
 }: Props) {
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [selectedFile, setSelectedFile] = useState<string>(files[0]?.path ?? "");
   const [activeLineComment, setActiveLineComment] = useState<{ filePath: string; line: number } | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
-  const [donePending, setDonePending] = useState(false);
+  const [isDone, setIsDone] = useState(initialIsDone);
   const wsRef = useRef<WebSocket | null>(null);
   const [fileListWidth, setFileListWidth] = usePersistedWidth("file-review-file-list-width", 224);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("file-review-comments-width", 384);
@@ -168,7 +170,6 @@ export function FileReviewClient({
           return [...prev, data.thread];
         });
       } else if (data.type === "view") {
-        setDonePending(false);
         window.location.reload();
       }
     });
@@ -318,6 +319,7 @@ export function FileReviewClient({
                         <button
                           className="w-12 shrink-0 text-right pr-3 py-1 text-muted-foreground/50 select-none border-r border-border/50 hover:bg-accent/50 transition-colors relative"
                           onClick={() => {
+                            if (isDone) return;
                             if (isActive) {
                               setActiveLineComment(null);
                             } else {
@@ -325,7 +327,7 @@ export function FileReviewClient({
                               setNewCommentText("");
                             }
                           }}
-                          title={`Comment on line ${lineNum}`}
+                          title={isDone ? undefined : `Comment on line ${lineNum}`}
                         >
                           <span className="text-xs group-hover:hidden">{lineNum}</span>
                           <span className="text-xs hidden group-hover:inline text-primary font-bold">+</span>
@@ -397,12 +399,11 @@ export function FileReviewClient({
             newCommentText={panelCommentText}
             onNewCommentTextChange={setPanelCommentText}
             onCreateGeneralComment={(text) => createThread(null, null, text)}
-            onDone={async () => {
-              setDonePending(true);
-              await fetch(`/s/${sessionId}/done`, { method: "POST" });
+            onDone={() => {
+              fetch(`/s/${sessionId}/done`, { method: "POST" });
+              setIsDone(true);
             }}
-            donePending={donePending}
-            doneNotice={donePending ? "Waiting for agent to pick up comments..." : null}
+            isDone={isDone}
           />
         </aside>
       </div>

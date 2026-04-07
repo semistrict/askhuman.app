@@ -217,6 +217,28 @@ test.describe("Plan Review", () => {
     expect(body.threads[0].messages[0].text).toBe("Last-minute feedback");
   });
 
+  test("reopening done session shows content with buttons disabled", async ({ page, request }) => {
+    const planRes = await request.post("/plan", {
+      data: "# Done Plan\nReview this.",
+      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+    });
+    const { sessionId: id } = await planRes.json();
+
+    await request.post(`/s/${id}/threads`, { data: { text: "Looks great" } });
+    await request.post(`/s/${id}/done`);
+
+    await page.goto(`/s/${id}`);
+    // Content is visible
+    await expect(page.locator("text=Done Plan")).toBeVisible();
+    // Comment is visible
+    await expect(page.locator("text=#1")).toBeVisible();
+    await expect(page.locator("text=Looks great")).toBeVisible();
+    // Done notice shown, buttons gone
+    await expect(page.locator("text=Waiting for agent")).toBeVisible();
+    await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
+    await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
+  });
+
   test("plan endpoint returns markdown by default", async ({ request }) => {
     const res = await request.post("/plan", {
       data: "# Markdown Default\n\nBody.",

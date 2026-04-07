@@ -14,8 +14,7 @@ interface CommentPanelProps {
   onCreateGeneralComment: (text: string) => void | Promise<void>;
   onDone: () => void | Promise<void>;
   doneLabel?: string;
-  donePending?: boolean;
-  doneNotice?: string | null;
+  isDone: boolean;
 }
 
 function basename(path: string): string {
@@ -32,8 +31,7 @@ export function CommentPanel({
   onCreateGeneralComment,
   onDone,
   doneLabel = "Done",
-  donePending = false,
-  doneNotice = null,
+  isDone,
 }: CommentPanelProps) {
   const sorted = [...threads].sort((a, b) => a.created_at - b.created_at);
 
@@ -41,45 +39,41 @@ export function CommentPanel({
     <div className="flex flex-col h-full">
       {/* General comment form + Done -- always at top */}
       <div className="border-b border-border p-4 shrink-0">
-        <Textarea
-          value={newCommentText}
-          onChange={(e) => onNewCommentTextChange(e.target.value)}
-          placeholder="General comment..."
-          className="mb-2 bg-background text-sm min-h-[60px]"
-          disabled={donePending}
-        />
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            onClick={() => onCreateGeneralComment(newCommentText)}
-            disabled={donePending || !newCommentText.trim()}
-          >
-            Comment
-          </Button>
-          <Button
-            size="sm"
-            className="flex-1"
-            onClick={async () => {
-              if (newCommentText.trim()) {
-                await onCreateGeneralComment(newCommentText);
-              }
-              await onDone();
-            }}
-            disabled={donePending}
-          >
-            {donePending ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                {doneLabel}
-              </span>
-            ) : newCommentText.trim() ? `Reply & ${doneLabel}` : doneLabel}
-          </Button>
-        </div>
-        {doneNotice ? (
-          <p className="mt-2 text-xs text-muted-foreground">{doneNotice}</p>
-        ) : null}
+        {isDone ? (
+          <p className="text-sm text-muted-foreground">Review submitted. Waiting for agent...</p>
+        ) : (
+          <>
+            <Textarea
+              value={newCommentText}
+              onChange={(e) => onNewCommentTextChange(e.target.value)}
+              placeholder="General comment..."
+              className="mb-2 bg-background text-sm min-h-[60px]"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => onCreateGeneralComment(newCommentText)}
+                disabled={!newCommentText.trim()}
+              >
+                Comment
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1"
+                onClick={async () => {
+                  if (newCommentText.trim()) {
+                    await onCreateGeneralComment(newCommentText);
+                  }
+                  await onDone();
+                }}
+              >
+                {newCommentText.trim() ? `Comment & ${doneLabel}` : doneLabel}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Comment list */}
@@ -97,7 +91,7 @@ export function CommentPanel({
           </p>
         )}
 
-        {sorted.map((thread, index) => {
+        {sorted.map((thread) => {
           const first = thread.messages[0];
           const isInline = thread.hunk_id != null || thread.line != null;
           const locationLabel = thread.file_path

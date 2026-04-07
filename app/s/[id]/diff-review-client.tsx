@@ -138,13 +138,13 @@ export function DiffReviewClient({
   description,
   hunks,
   initialThreads,
-  isDone,
+  isDone: initialIsDone,
 }: Props) {
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [activeComment, setActiveComment] = useState<{ hunkId: string; offset: number } | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
-  const [donePending, setDonePending] = useState(false);
+  const [isDone, setIsDone] = useState(initialIsDone);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("diff-review-comments-width", 384);
 
@@ -186,7 +186,6 @@ export function DiffReviewClient({
         });
       } else if (data.type === "view") {
         // Agent updated the diff — reload to get new hunks from server
-        setDonePending(false);
         window.location.reload();
       }
     });
@@ -293,6 +292,7 @@ export function DiffReviewClient({
                               hunkThreads={hunkThreads}
                               activeComment={activeComment}
                               onActivateComment={(offset) => {
+                                if (isDone) return;
                                 if (activeComment?.hunkId === hunk.id && activeComment.offset === offset) {
                                   setActiveComment(null);
                                 } else {
@@ -313,6 +313,7 @@ export function DiffReviewClient({
                               hunkThreads={hunkThreads}
                               activeComment={activeComment}
                               onActivateComment={(offset) => {
+                                if (isDone) return;
                                 if (activeComment?.hunkId === hunk.id && activeComment.offset === offset) {
                                   setActiveComment(null);
                                 } else {
@@ -349,6 +350,7 @@ export function DiffReviewClient({
                                   <button
                                     className="w-6 shrink-0 py-1 text-center select-none opacity-0 group-hover:opacity-100 transition-opacity text-primary font-bold text-xs"
                                     onClick={() => {
+                                      if (isDone) return;
                                       if (isActive) {
                                         setActiveComment(null);
                                       } else {
@@ -356,7 +358,7 @@ export function DiffReviewClient({
                                         setNewCommentText("");
                                       }
                                     }}
-                                    title="Comment on this line"
+                                    title={isDone ? undefined : "Comment on this line"}
                                   >
                                     +
                                   </button>
@@ -421,13 +423,11 @@ export function DiffReviewClient({
             newCommentText={panelCommentText}
             onNewCommentTextChange={setPanelCommentText}
             onCreateGeneralComment={(text) => createThread(null, null, text)}
-            onDone={async () => {
-              await fetch(`/s/${sessionId}/done`, { method: "POST" });
-              setDonePending(true);
+            onDone={() => {
+              fetch(`/s/${sessionId}/done`, { method: "POST" });
+              setIsDone(true);
             }}
-            doneLabel="Done"
-            donePending={donePending}
-            doneNotice={donePending ? "Waiting for agent..." : null}
+            isDone={isDone}
           />
         </aside>
       </div>

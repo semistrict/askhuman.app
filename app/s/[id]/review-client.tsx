@@ -15,18 +15,20 @@ interface Props {
   sessionId: string;
   planLines: string[];
   initialThreads: Thread[];
+  isDone: boolean;
 }
 
 export function ReviewClient({
   sessionId,
   planLines,
   initialThreads,
+  isDone: initialIsDone,
 }: Props) {
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [activeLineThread, setActiveLineThread] = useState<number | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
-  const [donePending, setDonePending] = useState(false);
+  const [isDone, setIsDone] = useState(initialIsDone);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("plan-review-comments-width", 384);
 
@@ -134,6 +136,7 @@ export function ReviewClient({
                         <button
                           className="w-12 shrink-0 text-right pr-3 py-1 text-muted-foreground/50 select-none border-r border-border/50 hover:bg-accent/50 transition-colors relative"
                           onClick={() => {
+                            if (isDone) return;
                             if (isActive) {
                               setActiveLineThread(null);
                             } else {
@@ -141,7 +144,7 @@ export function ReviewClient({
                               setNewCommentText("");
                             }
                           }}
-                          title={`Comment on line ${lineNum}`}
+                          title={isDone ? undefined : `Comment on line ${lineNum}`}
                         >
                           <span className="text-xs group-hover:hidden">{lineNum}</span>
                           <span className="text-xs hidden group-hover:inline text-primary font-bold">+</span>
@@ -213,12 +216,11 @@ export function ReviewClient({
             newCommentText={panelCommentText}
             onNewCommentTextChange={setPanelCommentText}
             onCreateGeneralComment={(text) => createThread(null, text)}
-            onDone={async () => {
-              await fetch(`/s/${sessionId}/done`, { method: "POST" });
-              setDonePending(true);
+            onDone={() => {
+              fetch(`/s/${sessionId}/done`, { method: "POST" });
+              setIsDone(true);
             }}
-            donePending={donePending}
-            doneNotice={donePending ? "Waiting for agent..." : null}
+            isDone={isDone}
           />
         </aside>
       </div>

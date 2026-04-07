@@ -230,6 +230,29 @@ diff --git a/b.ts b/b.ts
     expect((await pollRes.json()).status).toBe("done");
   });
 
+  test("reopening done session shows content with buttons disabled", async ({ page, request }) => {
+    const { sessionId } = await createDiffSession(
+      request,
+      "# Review\n\nCheck this.",
+      DIFF
+    );
+
+    await request.post(`/s/${sessionId}/threads`, { data: { text: "Fix the import" } });
+    await request.post(`/s/${sessionId}/done`);
+
+    await page.goto(`/s/${sessionId}`);
+    // Content is visible
+    await expect(page.locator("text=foo.ts")).toBeVisible();
+    await expect(page.locator("text=const z = 4;")).toBeVisible();
+    // Comment is visible
+    await expect(page.locator("text=#1")).toBeVisible();
+    await expect(page.locator("text=Fix the import")).toBeVisible();
+    // Done notice shown, buttons gone
+    await expect(page.locator("text=Waiting for agent")).toBeVisible();
+    await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
+    await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
+  });
+
   test("all-additions markdown hunks render like plan review", async ({ page, request }) => {
     const diff = makeMarkdownAddedDiff();
     const { sessionId } = await createDiffSession(

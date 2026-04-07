@@ -190,6 +190,27 @@ test.describe("File Review", () => {
     expect((await pollRes.json()).status).toBe("done");
   });
 
+  test("reopening done session shows content with buttons disabled", async ({ page, request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "src/greet.ts": FILE_A,
+    });
+
+    await request.post(`/s/${sessionId}/threads`, {
+      data: { text: "Add types", filePath: "src/greet.ts", line: 1 },
+    });
+    await request.post(`/s/${sessionId}/done`);
+
+    await page.goto(`/s/${sessionId}`);
+    // File content visible
+    await expect(page.locator("text=const greet")).toBeVisible();
+    // Comment visible in panel
+    await expect(page.locator("aside").getByText("Add types")).toBeVisible();
+    // Done notice shown, buttons gone
+    await expect(page.locator("text=Waiting for agent")).toBeVisible();
+    await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
+    await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
+  });
+
   test("empty file submission is rejected", async ({ request }) => {
     const res = await request.post("/files", {
       headers: JSON_ACCEPT,

@@ -12,12 +12,12 @@ export default async function SessionPage({
   const { id } = await params;
   const session = SessionDO.getInstance(id);
   const contentType = await session.getContentType();
+  const isDone = await session.isDone();
 
   if (contentType === "diff") {
     const description = await session.getDescription();
     const hunks = await session.getAllHunks();
     const threads: Thread[] = await session.getThreads();
-    const isDone = await session.isDone();
     return (
       <DiffReviewClient
         sessionId={id}
@@ -37,6 +37,7 @@ export default async function SessionPage({
         sessionId={id}
         files={files}
         initialThreads={threads}
+        isDone={isDone}
       />
     );
   }
@@ -58,6 +59,7 @@ export default async function SessionPage({
       sessionId={id}
       planLines={lines}
       initialThreads={threads}
+      isDone={isDone}
     />
   );
 }
