@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
+import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 import hljs from "highlight.js/lib/core";
 import typescript from "highlight.js/lib/languages/typescript";
@@ -105,6 +106,8 @@ export function FileReviewClient({
   const [expandedThreads, setExpandedThreads] = useState<Set<number>>(new Set());
   const [flashedMessages, setFlashedMessages] = useState<Set<number>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
+  const [fileListWidth, setFileListWidth] = usePersistedWidth("file-review-file-list-width", 224);
+  const [commentsWidth, setCommentsWidth] = usePersistedWidth("file-review-comments-width", 384);
 
   const filesByPath = useMemo(
     () => new Map(files.map((f) => [f.path, f])),
@@ -276,7 +279,7 @@ export function FileReviewClient({
 
       <div className="flex flex-1 overflow-hidden">
         {/* File selector sidebar */}
-        <aside className="w-56 shrink-0 border-r border-border flex flex-col">
+        <aside className="shrink-0 border-r border-border flex flex-col" style={{ width: fileListWidth }}>
           <div className="px-3 py-2 border-b border-border">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Files
@@ -334,6 +337,8 @@ export function FileReviewClient({
             </Button>
           </div>
         </aside>
+
+        <ResizeHandle side="left" onResize={(d) => setFileListWidth(Math.max(120, fileListWidth + d))} />
 
         {/* File content */}
         <main className="flex-1 overflow-y-auto">
@@ -426,8 +431,10 @@ export function FileReviewClient({
           )}
         </main>
 
+        <ResizeHandle side="right" onResize={(d) => setCommentsWidth(Math.max(200, commentsWidth + d))} />
+
         {/* Comments panel */}
-        <aside className="w-96 shrink-0 border-l border-border flex flex-col">
+        <aside className="shrink-0 border-l border-border flex flex-col" style={{ width: commentsWidth }}>
           {/* General comment form + Done */}
           <div className="border-b border-border p-4 shrink-0">
             <Textarea

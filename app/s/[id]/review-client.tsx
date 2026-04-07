@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
 import { PlanLine } from "@/components/plan-line";
+import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 
 interface Props {
@@ -29,6 +30,7 @@ export function ReviewClient({
   const [expandedThreads, setExpandedThreads] = useState<Set<number>>(new Set());
   const [flashedMessages, setFlashedMessages] = useState<Set<number>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
+  const [commentsWidth, setCommentsWidth] = usePersistedWidth("plan-review-comments-width", 384);
 
   // WebSocket connection
   useEffect(() => {
@@ -255,7 +257,9 @@ export function ReviewClient({
         </main>
 
         {/* Right side panel */}
-        <aside className="w-96 shrink-0 border-l border-border">
+        <ResizeHandle side="right" onResize={(d) => setCommentsWidth(Math.max(200, commentsWidth + d))} />
+
+        <aside className="shrink-0 border-l border-border" style={{ width: commentsWidth }}>
           <CommentPanel
             threads={threads}
             sessionId={sessionId}
