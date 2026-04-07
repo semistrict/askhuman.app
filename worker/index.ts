@@ -15,27 +15,35 @@ export { DebugIndexDO } from "./debug-index";
 async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
 
-  const text = `askhuman.app -- human-in-the-loop review tools for AI agents
+  const text = `# askhuman.app
 
-Use this with the same user you are already interacting with. After you submit, open the returned review URL in that user's browser.
+Human-in-the-loop review tools for AI agents.
+Submit via curl, open the URL for the user, poll for their feedback.
 
-1. Write your plan to a file, then post it:
+## Plan review
 
   curl -s --data-binary @plan.md ${base}/plan
 
-2. Or submit a diff for review:
+## Diff review
 
   curl -s -X POST ${base}/diff \\
     -F description=@description.md \\
     -F diff=@current.diff
 
-3. Or submit files for review:
+## File review
 
   curl -s -X POST ${base}/files \\
     -F "src/main.ts=<src/main.ts" \\
     -F "src/utils.ts=<src/utils.ts"
 
-Response includes sessionId, review URL, and instructions for polling and replying.
+## Playground
+
+  curl -s -X POST ${base}/playground \\
+    -F "html=<playground.html"
+
+Each response includes a sessionId, a review URL, and polling instructions.
+Open the URL for the same user you are already interacting with.
+Poll with GET .../{id}/poll -- returns when the user clicks Done.
 `;
 
   return new Response(text.endsWith("\n") ? text : `${text}\n`, {
