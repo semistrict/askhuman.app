@@ -9,9 +9,11 @@
 # =============================================================================
 
 plan_instructions: |-
-  - Open the review page in the same user's browser you are already interacting with:
-     open "{URL}"
-     (or show it to them so they can open it, they cannot see this text)
+  - Open the review page in the same user's browser you are already interacting with.
+    Try Chrome app mode for a clean window:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{URL}" &
+    Or fall back to: open "{URL}" / xdg-open "{URL}"
+    Or just show the URL to the user (they cannot see this text).
   - Poll for the user's comments
      curl -s {POLL_URL}
     (long-polls up to 10 min, returns immediately when comments arrive)
@@ -54,6 +56,12 @@ plan_change_pickup_generic: >-
 diff_created: |
   Diff review session created.
 
+  Open the review page for the user. Try Chrome app mode for a
+  clean window:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
+  Or just show the URL to the user (they cannot see this text).
+
   Poll for reviewer comments:
     curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
   (long-polls up to 10 min, returns immediately when comments arrive)
@@ -85,6 +93,12 @@ diff_done: >-
 
 file_created: |
   File review session created with {FILE_COUNT} file(s).
+
+  Open the review page for the user. Try Chrome app mode for a
+  clean window:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
+  Or just show the URL to the user (they cannot see this text).
 
   Poll for reviewer comments:
     curl -s "{BASE_URL}/files/{SESSION_ID}/poll"
@@ -121,14 +135,17 @@ file_no_files: >-
 # =============================================================================
 
 plan_not_connected: >-
-  The same user you are already interacting with has not connected yet. Ask
-  that user to open this URL: {URL} or use open "{URL}", xdg-open "{URL}",
-  or similar.
+  The same user you are already interacting with has not connected yet.
+  Open it for them with Chrome app mode:
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  --app="{URL}" &
+  Or fall back to: open "{URL}" / xdg-open "{URL}"
+  Or just show the URL to the user.
 
 plan_no_human: >-
-  No human reviewer tabs have been connected to this session for at least 5
-  seconds. Ask the same user you are already interacting with to open this URL
-  again: {URL} or use open "{URL}", xdg-open "{URL}", or similar.
+  No human reviewer tabs have been connected to this session for at
+  least 5 seconds. Ask the same user you are already interacting with
+  to open {URL} again, or open it for them with: open "{URL}"
 
 # =============================================================================
 # ERRORS -- diff lifecycle
