@@ -48,7 +48,7 @@ export async function updateFileSession(
   const session = SessionDO.getInstance(sessionId);
 
   if (await session.isDone()) {
-    throw new FileReviewError(msg("file_already_done"), 409);
+    await session.resetDone();
   }
 
   const currentPaths = new Set(files.map((f) => f.path));

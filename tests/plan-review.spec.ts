@@ -89,7 +89,7 @@ test.describe("Plan Review", () => {
     expect(thread.messages[0].text).toBe("Can you clarify this?");
   });
 
-  test("agent receives comments via long-poll", async ({ request }) => {
+  test("agent receives comments after Done", async ({ request }) => {
     const planRes = await request.post("/plan", {
       data: "# Plan\nLine 1",
       headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
@@ -99,16 +99,15 @@ test.describe("Plan Review", () => {
     await request.post(`/s/${id}/threads`, {
       data: { text: "New feedback" },
     });
+    await request.post(`/s/${id}/done`);
 
     const res = await request.get(`/plan/${id}/poll`, {
       headers: JSON_ACCEPT,
     });
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.status).toBe("comments");
+    expect(body.status).toBe("done");
     expect(body.threads[0].messages[0].text).toBe("New feedback");
-    expect(body.message).toContain("Do not wait for confirmation.");
-    expect(body.message).toContain("make sure the same user can review the updated result");
   });
 
   test("poll returns error if the human has not connected", async ({ request }) => {
@@ -172,92 +171,27 @@ test.describe("Plan Review", () => {
     expect(text).toContain(`xdg-open "http://localhost:15032/s/${sessionId}"`);
   });
 
-  test("agent replies to thread", async ({ request }) => {
-    const threadRes = await request.post(`/s/${sessionId}/threads`, {
-      data: { text: "Question about step 1" },
-    });
-    const thread = await threadRes.json();
-
-    const delayedComment = postThreadAfterDelay(
-      request,
-      sessionId,
-      "Follow-up after reply"
-    );
-    const res = await request.post(`/plan/${sessionId}/reply`, {
-      multipart: {
-        threadId: String(thread.id),
-        text: "Good point, I will update the plan.",
-      },
-      headers: JSON_ACCEPT,
-      timeout: 10000,
-    });
-    await delayedComment;
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body.sent[0].role).toBe("agent");
-    expect(body.sent[0].text).toBe("Good point, I will update the plan.");
-    expect(body.sent[0].thread_id).toBe(thread.id);
-    expect(body.status).toBe("comments");
-    expect(body.message).toContain("make sure the same user can review the updated result");
-  });
-
-  test("WebSocket receives agent reply", async ({ page, request }) => {
+  test("poll waits for Done, not individual comments", async ({ page, request }) => {
     const planRes = await request.post("/plan", {
-      data: "# WS Test Plan\nLine one.",
+      data: "# Wait Test\nContent.",
       headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
     });
     const { sessionId: id } = await planRes.json();
-
-    const threadRes = await request.post(`/s/${id}/threads`, {
-      data: { text: "Initial comment" },
-    });
-    const thread = await threadRes.json();
-
     await page.goto(`/s/${id}`);
-    await expect(page.locator("text=Initial comment")).toBeVisible();
-    await page.locator("text=Initial comment").click();
 
-    const delayedComment = postThreadAfterDelay(
-      request,
-      id,
-      "Second human comment"
-    );
-    await request.post(`/plan/${id}/reply`, {
-      multipart: {
-        threadId: String(thread.id),
-        text: "Agent reply via WS",
-      },
+    // Post comment and then Done after a delay
+    setTimeout(async () => {
+      await request.post(`/s/${id}/threads`, { data: { text: "Feedback" } });
+      await request.post(`/s/${id}/done`);
+    }, 100);
+
+    const res = await request.get(`/plan/${id}/poll`, {
       headers: JSON_ACCEPT,
       timeout: 10000,
     });
-    await delayedComment;
-
-    await expect(page.locator("text=Agent reply via WS")).toBeVisible({
-      timeout: 10000,
-    });
-  });
-
-  test("poll ignores X-Poll-Timeout and waits for comments", async ({ request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Empty\nNothing here.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
-
-    const delayedComment = postThreadAfterDelay(
-      request,
-      id,
-      "Delayed feedback"
-    );
-    const res = await request.get(`/plan/${id}/poll`, {
-      headers: { "X-Poll-Timeout": "2000", ...JSON_ACCEPT },
-      timeout: 10000,
-    });
-    await delayedComment;
-    expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.status).toBe("comments");
-    expect(body.threads[0].messages[0].text).toBe("Delayed feedback");
+    expect(body.status).toBe("done");
+    expect(body.threads[0].messages[0].text).toBe("Feedback");
   });
 
   test("comments posted before done are not lost", async ({ request }) => {

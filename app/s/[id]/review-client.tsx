@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { Thread, Message } from "@/worker/session";
+import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -26,9 +26,7 @@ export function ReviewClient({
   const [activeLineThread, setActiveLineThread] = useState<number | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
-  const [replyTexts, setReplyTexts] = useState<Record<number, string>>({});
-  const [expandedThreads, setExpandedThreads] = useState<Set<number>>(new Set());
-  const [flashedMessages, setFlashedMessages] = useState<Set<number>>(new Set());
+  const [donePending, setDonePending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("plan-review-comments-width", 384);
 
@@ -53,26 +51,6 @@ export function ReviewClient({
           if (prev.some((t) => t.id === data.thread.id)) return prev;
           return [...prev, data.thread];
         });
-      } else if (data.type === "message") {
-        const msg: Message = data.message;
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === msg.thread_id
-              ? t.messages.some((m) => m.id === msg.id)
-                ? t
-                : { ...t, messages: [...t.messages, msg] }
-              : t
-          )
-        );
-        setFlashedMessages((prev) => new Set(prev).add(msg.id));
-        setTimeout(() => {
-          setFlashedMessages((prev) => {
-            const next = new Set(prev);
-            next.delete(msg.id);
-            return next;
-          });
-        }, 2000);
-        setExpandedThreads((prev) => new Set(prev).add(msg.thread_id));
       }
     });
 
@@ -99,29 +77,6 @@ export function ReviewClient({
     },
     [sessionId]
   );
-
-  const replyToThread = useCallback(
-    async (threadId: number) => {
-      const text = replyTexts[threadId];
-      if (!text?.trim()) return;
-      await fetch(`/s/${sessionId}/threads/${threadId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      setReplyTexts((prev) => ({ ...prev, [threadId]: "" }));
-    },
-    [sessionId, replyTexts]
-  );
-
-  const toggleThread = (id: number) => {
-    setExpandedThreads((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const scrollToLine = useCallback((line: number) => {
     const el = document.getElementById(`line-${line}`);
@@ -204,18 +159,9 @@ export function ReviewClient({
                           <ThreadView
                             key={thread.id}
                             thread={thread}
-                            expanded={expandedThreads.has(thread.id)}
-                            onToggle={() => toggleThread(thread.id)}
-                            replyText={replyTexts[thread.id] ?? ""}
-                            onReplyTextChange={(text) =>
-                              setReplyTexts((prev) => ({
-                                ...prev,
-                                [thread.id]: text,
-                              }))
-                            }
-                            onReply={() => replyToThread(thread.id)}
-                            flashedMessages={flashedMessages}
+                            commentNumber={thread.id}
                             className="ml-12"
+                            outdated={thread.outdated}
                           />
                         ))}
 
@@ -269,16 +215,10 @@ export function ReviewClient({
             onCreateGeneralComment={(text) => createThread(null, text)}
             onDone={async () => {
               await fetch(`/s/${sessionId}/done`, { method: "POST" });
-              window.close();
+              setDonePending(true);
             }}
-            replyTexts={replyTexts}
-            onReplyTextChange={(threadId, text) =>
-              setReplyTexts((prev) => ({ ...prev, [threadId]: text }))
-            }
-            onReply={(threadId) => replyToThread(threadId)}
-            expandedThreads={expandedThreads}
-            onToggleThread={toggleThread}
-            flashedMessages={flashedMessages}
+            donePending={donePending}
+            doneNotice={donePending ? "Waiting for agent..." : null}
           />
         </aside>
       </div>

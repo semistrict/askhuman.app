@@ -117,11 +117,6 @@ export function formatPollResponse(
     };
   }
 
-  const replyExample = result.threads.map((t) => ({
-    threadId: t.id,
-    text: "<your reply>",
-  }));
-
   return {
     status: "comments" as PollStatus,
     threads: result.threads,
@@ -130,7 +125,6 @@ export function formatPollResponse(
         msg("plan_comments"),
         changePickupReminder(prefix, baseUrl, sessionId),
       ].filter(Boolean).join(" "),
-    next: formatReplyCurl(baseUrl, sessionId, prefix, replyExample),
   };
 }
 

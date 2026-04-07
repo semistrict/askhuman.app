@@ -52,7 +52,7 @@ export async function updateDiffSession(
   const session = SessionDO.getInstance(sessionId);
 
   if (await session.isDone()) {
-    throw new RequestHunksValidationError(msg("diff_already_done"), 409);
+    await session.resetDone();
   }
 
   const newHunkIds = new Set(parsed.map((h) => createStableHunkId(h)));

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import type { Thread, Message } from "@/worker/session";
+import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
+import { CommentPanel } from "@/components/comment-panel";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 import hljs from "highlight.js/lib/core";
@@ -102,9 +103,7 @@ export function FileReviewClient({
   const [activeLineComment, setActiveLineComment] = useState<{ filePath: string; line: number } | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
-  const [replyTexts, setReplyTexts] = useState<Record<number, string>>({});
-  const [expandedThreads, setExpandedThreads] = useState<Set<number>>(new Set());
-  const [flashedMessages, setFlashedMessages] = useState<Set<number>>(new Set());
+  const [donePending, setDonePending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [fileListWidth, setFileListWidth] = usePersistedWidth("file-review-file-list-width", 224);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("file-review-comments-width", 384);
@@ -168,27 +167,8 @@ export function FileReviewClient({
           if (prev.some((t) => t.id === data.thread.id)) return prev;
           return [...prev, data.thread];
         });
-      } else if (data.type === "message") {
-        const msg: Message = data.message;
-        setThreads((prev) =>
-          prev.map((t) =>
-            t.id === msg.thread_id
-              ? t.messages.some((m) => m.id === msg.id)
-                ? t
-                : { ...t, messages: [...t.messages, msg] }
-              : t
-          )
-        );
-        setFlashedMessages((prev) => new Set(prev).add(msg.id));
-        setTimeout(() => {
-          setFlashedMessages((prev) => {
-            const next = new Set(prev);
-            next.delete(msg.id);
-            return next;
-          });
-        }, 2000);
-        setExpandedThreads((prev) => new Set(prev).add(msg.thread_id));
       } else if (data.type === "view") {
+        setDonePending(false);
         window.location.reload();
       }
     });
@@ -215,29 +195,6 @@ export function FileReviewClient({
     [sessionId]
   );
 
-  const replyToThread = useCallback(
-    async (threadId: number) => {
-      const text = replyTexts[threadId];
-      if (!text?.trim()) return;
-      await fetch(`/s/${sessionId}/threads/${threadId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      setReplyTexts((prev) => ({ ...prev, [threadId]: "" }));
-    },
-    [sessionId, replyTexts]
-  );
-
-  const toggleThread = (id: number) => {
-    setExpandedThreads((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const navigateFile = (direction: -1 | 1) => {
     const idx = files.findIndex((f) => f.path === selectedFile);
     const next = idx + direction;
@@ -258,11 +215,6 @@ export function FileReviewClient({
       </div>
     );
   }
-
-  // All threads for the comment panel (across all files)
-  const allThreadsSorted = [...threads].sort((a, b) => a.created_at - b.created_at);
-  const generalThreads = allThreadsSorted.filter((t) => t.file_path == null && t.line == null);
-  const inlineThreads = allThreadsSorted.filter((t) => t.file_path != null || t.line != null);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -391,12 +343,7 @@ export function FileReviewClient({
                         <ThreadView
                           key={thread.id}
                           thread={thread}
-                          expanded={expandedThreads.has(thread.id)}
-                          onToggle={() => toggleThread(thread.id)}
-                          replyText={replyTexts[thread.id] ?? ""}
-                          onReplyTextChange={(text) => setReplyTexts((prev) => ({ ...prev, [thread.id]: text }))}
-                          onReply={() => replyToThread(thread.id)}
-                          flashedMessages={flashedMessages}
+                          commentNumber={thread.id}
                           className="ml-12"
                           outdated={thread.outdated}
                         />
@@ -434,134 +381,29 @@ export function FileReviewClient({
         <ResizeHandle side="right" onDrag={setCommentsWidth} minWidth={200} />
 
         {/* Comments panel */}
-        <aside className="shrink-0 border-l border-border flex flex-col" style={{ width: commentsWidth }}>
-          {/* General comment form + Done */}
-          <div className="border-b border-border p-4 shrink-0">
-            <Textarea
-              value={panelCommentText}
-              onChange={(e) => setPanelCommentText(e.target.value)}
-              placeholder="General comment..."
-              className="mb-2 bg-background text-sm min-h-[60px]"
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1"
-                onClick={() => createThread(null, null, panelCommentText)}
-                disabled={!panelCommentText.trim()}
-              >
-                Comment
-              </Button>
-              <Button
-                size="sm"
-                className="flex-1"
-                onClick={async () => {
-                  if (panelCommentText.trim()) {
-                    await createThread(null, null, panelCommentText);
-                  }
-                  await fetch(`/s/${sessionId}/done`, { method: "POST" });
-                  window.close();
-                }}
-              >
-                {panelCommentText.trim() ? "Reply & Done" : "Done"}
-              </Button>
-            </div>
-          </div>
-
-          {/* Thread timeline */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-1">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-              Comments
-              {threads.length > 0 && (
-                <span className="ml-1.5 text-foreground">{threads.length}</span>
-              )}
-            </h2>
-
-            {threads.length === 0 && (
-              <p className="text-sm text-muted-foreground italic py-4">
-                No comments yet.
-              </p>
-            )}
-
-            {generalThreads.length > 0 && (
-              <div className="space-y-1 mb-4">
-                <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-2 mb-1">
-                  General
-                </h3>
-                {generalThreads.map((thread) => (
-                  <ThreadView
-                    key={thread.id}
-                    thread={thread}
-                    expanded={expandedThreads.has(thread.id)}
-                    onToggle={() => toggleThread(thread.id)}
-                    replyText={replyTexts[thread.id] ?? ""}
-                    onReplyTextChange={(text) => setReplyTexts((prev) => ({ ...prev, [thread.id]: text }))}
-                    onReply={() => replyToThread(thread.id)}
-                    flashedMessages={flashedMessages}
-                    className="rounded-md"
-                    outdated={thread.outdated}
-                  />
-                ))}
-              </div>
-            )}
-
-            {inlineThreads.length > 0 && (
-              <div className="space-y-1">
-                <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-2 mb-1">
-                  Inline
-                </h3>
-                {inlineThreads.map((thread) => {
-                  const first = thread.messages[0];
-                  const replyCount = thread.messages.length - 1;
-                  return (
-                    <button
-                      key={thread.id}
-                      className={`w-full text-left rounded-md px-3 py-2 hover:bg-muted/50 transition-colors group ${thread.outdated ? "opacity-60" : ""}`}
-                      onClick={() => {
-                        if (thread.file_path && filesByPath.has(thread.file_path)) {
-                          setSelectedFile(thread.file_path);
-                          setActiveLineComment(null);
-                          setTimeout(() => {
-                            if (thread.line != null) {
-                              const el = document.getElementById(`line-${thread.line}`);
-                              el?.scrollIntoView({ behavior: "smooth", block: "center" });
-                            }
-                          }, 50);
-                        }
-                        toggleThread(thread.id);
-                      }}
-                    >
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]">
-                          {thread.file_path ? `${basename(thread.file_path)}:${thread.line}` : `L${thread.line}`}
-                        </span>
-                        <Badge
-                          variant={first.role === "human" ? "default" : "secondary"}
-                          className="text-[9px] py-0"
-                        >
-                          {first.role}
-                        </Badge>
-                        {thread.outdated && (
-                          <Badge variant="outline" className="text-[9px] py-0 text-muted-foreground">
-                            outdated
-                          </Badge>
-                        )}
-                        {replyCount > 0 && (
-                          <span className="text-[10px] text-muted-foreground ml-auto">
-                            {replyCount} {replyCount === 1 ? "reply" : "replies"}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs font-sans line-clamp-2 text-foreground/80">
-                        {first.text}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        <aside className="shrink-0 border-l border-border" style={{ width: commentsWidth }}>
+          <CommentPanel
+            threads={threads}
+            sessionId={sessionId}
+            onScrollToLine={(target) => {
+              if (typeof target === "string" && filesByPath.has(target)) {
+                setSelectedFile(target);
+                setActiveLineComment(null);
+              } else if (typeof target === "number") {
+                const el = document.getElementById(`line-${target}`);
+                el?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+            newCommentText={panelCommentText}
+            onNewCommentTextChange={setPanelCommentText}
+            onCreateGeneralComment={(text) => createThread(null, null, text)}
+            onDone={async () => {
+              setDonePending(true);
+              await fetch(`/s/${sessionId}/done`, { method: "POST" });
+            }}
+            donePending={donePending}
+            doneNotice={donePending ? "Waiting for agent to pick up comments..." : null}
+          />
         </aside>
       </div>
     </div>

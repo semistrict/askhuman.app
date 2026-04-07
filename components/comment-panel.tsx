@@ -4,7 +4,6 @@ import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ThreadView } from "@/components/thread-view";
 
 interface CommentPanelProps {
   threads: Thread[];
@@ -17,12 +16,11 @@ interface CommentPanelProps {
   doneLabel?: string;
   donePending?: boolean;
   doneNotice?: string | null;
-  replyTexts: Record<number, string>;
-  onReplyTextChange: (threadId: number, text: string) => void;
-  onReply: (threadId: number) => void;
-  expandedThreads: Set<number>;
-  onToggleThread: (id: number) => void;
-  flashedMessages: Set<number>;
+}
+
+function basename(path: string): string {
+  const parts = path.split("/");
+  return parts[parts.length - 1];
 }
 
 export function CommentPanel({
@@ -36,20 +34,12 @@ export function CommentPanel({
   doneLabel = "Done",
   donePending = false,
   doneNotice = null,
-  replyTexts,
-  onReplyTextChange,
-  onReply,
-  expandedThreads,
-  onToggleThread,
-  flashedMessages,
 }: CommentPanelProps) {
   const sorted = [...threads].sort((a, b) => a.created_at - b.created_at);
-  const inlineThreads = sorted.filter((t) => t.hunk_id != null || t.line != null);
-  const generalThreads = sorted.filter((t) => t.hunk_id == null && t.line == null);
 
   return (
     <div className="flex flex-col h-full">
-      {/* General comment form + Done — always at top */}
+      {/* General comment form + Done -- always at top */}
       <div className="border-b border-border p-4 shrink-0">
         <Textarea
           value={newCommentText}
@@ -92,7 +82,7 @@ export function CommentPanel({
         ) : null}
       </div>
 
-      {/* Thread timeline */}
+      {/* Comment list */}
       <div className="flex-1 overflow-y-auto p-4 space-y-1">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           Comments
@@ -107,70 +97,46 @@ export function CommentPanel({
           </p>
         )}
 
-        {/* General threads — full ThreadView in panel */}
-        {generalThreads.length > 0 && (
-          <div className="space-y-1 mb-4">
-            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-2 mb-1">
-              General
-            </h3>
-            {generalThreads.map((thread) => (
-              <ThreadView
-                key={thread.id}
-                thread={thread}
-                expanded={expandedThreads.has(thread.id)}
-                onToggle={() => onToggleThread(thread.id)}
-                replyText={replyTexts[thread.id] ?? ""}
-                onReplyTextChange={(text) => onReplyTextChange(thread.id, text)}
-                onReply={() => onReply(thread.id)}
-                flashedMessages={flashedMessages}
-                className="rounded-md"
-              />
-            ))}
-          </div>
-        )}
+        {sorted.map((thread, index) => {
+          const first = thread.messages[0];
+          const isInline = thread.hunk_id != null || thread.line != null;
+          const locationLabel = thread.file_path
+            ? `${basename(thread.file_path)}:${thread.line}`
+            : thread.hunk_id != null
+              ? `H${thread.hunk_id}:${thread.line}`
+              : thread.line != null
+                ? `L${thread.line}`
+                : "general";
 
-        {/* Inline thread summaries — click to scroll */}
-        {inlineThreads.length > 0 && (
-          <div className="space-y-1">
-            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-2 mb-1">
-              Inline
-            </h3>
-            {inlineThreads.map((thread) => {
-              const first = thread.messages[0];
-              const replyCount = thread.messages.length - 1;
-              return (
-                <button
-                  key={thread.id}
-                  className="w-full text-left rounded-md px-3 py-2 hover:bg-muted/50 transition-colors group"
-                  onClick={() => {
-                    onScrollToLine(thread.hunk_id ?? thread.line!);
-                    onToggleThread(thread.id);
-                  }}
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                      {thread.hunk_id != null ? `H${thread.hunk_id}:${thread.line}` : `L${thread.line}`}
-                    </span>
-                    <Badge
-                      variant={first.role === "human" ? "default" : "secondary"}
-                      className="text-[9px] py-0"
-                    >
-                      {first.role}
-                    </Badge>
-                    {replyCount > 0 && (
-                      <span className="text-[10px] text-muted-foreground ml-auto">
-                        {replyCount} {replyCount === 1 ? "reply" : "replies"}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs font-sans line-clamp-2 text-foreground/80">
-                    {first.text}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
+          return (
+            <button
+              key={thread.id}
+              className={`w-full text-left rounded-md px-3 py-2 hover:bg-muted/50 transition-colors ${thread.outdated ? "opacity-60" : ""}`}
+              onClick={() => {
+                if (isInline) {
+                  onScrollToLine(thread.hunk_id ?? thread.file_path ?? thread.line!);
+                }
+              }}
+            >
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] font-mono font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  #{thread.id}
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded truncate max-w-[140px]">
+                  {locationLabel}
+                </span>
+                {thread.outdated && (
+                  <Badge variant="outline" className="text-[9px] py-0 text-muted-foreground">
+                    outdated
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs font-sans line-clamp-2 text-foreground/80">
+                {first.text}
+              </p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

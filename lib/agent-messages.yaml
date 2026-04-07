@@ -14,19 +14,12 @@ plan_instructions: |-
      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{URL}" &
     Or fall back to: open "{URL}" / xdg-open "{URL}"
     Or just show the URL to the user (they cannot see this text).
-  - Poll for the user's comments
+  - Poll for the user's comments (returns when they click Done):
      curl -s {POLL_URL}
-    (long-polls up to 10 min, returns immediately when comments arrive)
-  - When status is "comments", immediately begin addressing the comments. Do not wait for confirmation.
-    Make any requested code changes first. Then reply to each thread and auto-poll for the next round.
-    If no code changes are needed, reply immediately:
-     curl -s -X POST {REPLY_URL} -F threadId=1 -F text='your reply'
+  - When status is "comments", address each numbered comment.
 
 plan_comments: >-
-  New review comments arrived. Immediately begin addressing them. Do not wait
-  for confirmation. Make any requested code changes first, then reply in the
-  affected threads with the command below. If a comment does not require code
-  changes, reply right away.
+  The reviewer is done. Address each numbered comment below.
 
 plan_timeout: >-
   No new comments yet. The human may still be reviewing. Poll again.
@@ -62,13 +55,8 @@ diff_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for reviewer comments:
+  Poll for reviewer comments (returns when they click Done):
     curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
-  (long-polls up to 10 min, returns immediately when comments arrive)
-
-  Reply to comments:
-    curl -s -X POST "{BASE_URL}/diff/{SESSION_ID}/reply" \
-      -F threadId=1 -F text='your reply'
 
   After code changes, resubmit the updated diff:
     curl -s -X POST "{BASE_URL}/diff" \
@@ -76,9 +64,7 @@ diff_created: |
       -F description=@description.md \
       -F diff=@current.diff
 
-  When status is "comments", immediately begin addressing the comments.
-  Do not wait for confirmation. Make any requested code changes first,
-  then reply in the affected threads.
+  When status is "comments", address each numbered comment.
 
 diff_updated: >-
   Diff updated. Comments on changed hunks are now marked outdated.
@@ -100,13 +86,8 @@ file_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for reviewer comments:
+  Poll for reviewer comments (returns when they click Done):
     curl -s "{BASE_URL}/files/{SESSION_ID}/poll"
-  (long-polls up to 10 min, returns immediately when comments arrive)
-
-  Reply to comments:
-    curl -s -X POST "{BASE_URL}/files/{SESSION_ID}/reply" \
-      -F threadId=1 -F text='your reply'
 
   After code changes, re-upload all files:
     curl -s -X POST "{BASE_URL}/files" \
@@ -114,9 +95,7 @@ file_created: |
       -F "path/to/file.ts=<path/to/file.ts"
 
   Files not included in a re-upload are removed from the review.
-  When status is "comments", immediately begin addressing the comments.
-  Do not wait for confirmation. Make any requested code changes first,
-  then reply in the affected threads.
+  When status is "comments", address each numbered comment.
 
 file_updated: >-
   Files updated ({FILE_COUNT} file(s)). Comments on removed files

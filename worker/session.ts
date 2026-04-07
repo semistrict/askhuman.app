@@ -729,10 +729,15 @@ export class SessionDO extends DurableObject {
       messages: [{ id: messageId, thread_id: threadId, role: "human", text, created_at: now }],
     };
 
-    this.resolveWaiters();
     this.broadcast({ type: "thread", thread });
 
     return thread;
+  }
+
+  async resetDone(): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "DELETE FROM state WHERE key = 'done'"
+    );
   }
 
   async advanceCursorPastThreads(threadIds: number[]): Promise<void> {
@@ -779,10 +784,8 @@ export class SessionDO extends DurableObject {
 
     const message: Message = { id: messageId, thread_id: threadId, role, text, created_at: now };
 
-    // Only resolve waiters for human messages (agent polls for human comments)
     if (role === "human") {
       await this.markHumanConnected();
-      this.resolveWaiters();
     }
 
     this.broadcast({ type: "message", message });
