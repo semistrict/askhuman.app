@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
+import { PlanLine } from "@/components/plan-line";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 import hljs from "highlight.js/lib/core";
@@ -335,10 +336,16 @@ export function FileReviewClient({
                             <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary group-hover:hidden" />
                           )}
                         </button>
-                        <pre
-                          className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words"
-                          dangerouslySetInnerHTML={{ __html: highlighted || "\u00A0" }}
-                        />
+                        {currentLanguage === "markdown" ? (
+                          <pre className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words">
+                            <PlanLine text={line} />
+                          </pre>
+                        ) : (
+                          <pre
+                            className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words"
+                            dangerouslySetInnerHTML={{ __html: highlighted || "\u00A0" }}
+                          />
+                        )}
                       </div>
 
                       {hasThread && lineThreads.get(lineNum)!.map((thread) => (
