@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
-import { PlanLine } from "@/components/plan-line";
+import { MarkdownLine } from "@/components/markdown-line";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -486,7 +486,7 @@ function AddedMarkdownHunk({
                 )}
               </button>
               <pre className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words">
-                <PlanLine text={diffLine.text} />
+                <MarkdownLine text={diffLine.text} />
               </pre>
             </div>
 

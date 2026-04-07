@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-export function PlanLine({ text }: { text: string }) {
+export function MarkdownLine({ text }: { text: string }) {
   if (!text) return <span>{"\u00A0"}</span>;
 
   const headingMatch = text.match(/^(#{1,4})\s(.+)/);

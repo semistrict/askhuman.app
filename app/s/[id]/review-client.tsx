@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
-import { PlanLine } from "@/components/plan-line";
+import { MarkdownLine } from "@/components/markdown-line";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 
@@ -153,7 +153,7 @@ export function ReviewClient({
                           )}
                         </button>
                         <pre className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words">
-                          <PlanLine text={line} />
+                          <MarkdownLine text={line} />
                         </pre>
                       </div>
 
