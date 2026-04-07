@@ -124,12 +124,13 @@ function handleRootHtml(): Response {
     <span class="copy">copy</span>
   </div>
 
-  <div class="cmd" onclick="copyCmd(this, 'npx skills add semistrict/askhuman.app --skill diff-review')">
-    <div class="label">Or pick one</div>
-    <pre>npx skills add semistrict/askhuman.app --skill diff-review</pre>
+  <div class="cmd" onclick="copyCmd(this, 'curl -s https://askhuman.app | claude &quot;follow these instructions to review my current diff&quot;')">
+    <div class="label">Prompt-inject yourself</div>
+    <pre>curl -s https://askhuman.app | claude \
+  "follow these instructions to review my current diff"</pre>
     <span class="copy">copy</span>
   </div>
-  <p class="note">Also: plan-review, file-review, playground</p>
+  <p class="note">Works with any agent that accepts piped context.</p>
 
   <div class="links">
     <a href="https://github.com/semistrict/askhuman.app">github</a>
