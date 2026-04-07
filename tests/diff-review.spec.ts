@@ -130,8 +130,7 @@ test.describe("Diff Review", () => {
       DIFF
     );
     await page.goto(`/s/${sessionId}`);
-    await expect(page.locator("text=Refactored constants")).toBeVisible();
-    await expect(page.locator("nav button", { hasText: "foo.ts" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Refactored constants" })).toBeVisible();
     await expect(page.locator("text=const z = 4;")).toBeVisible();
   });
 
@@ -248,7 +247,6 @@ diff --git a/b.ts b/b.ts
     await request.post(`/s/${sessionId}/done`);
 
     await page.goto(`/s/${sessionId}`);
-    await expect(page.locator("nav button", { hasText: "foo.ts" })).toBeVisible();
     await expect(page.locator("text=const z = 4;")).toBeVisible();
     await expect(page.locator("text=Fix the import")).toBeVisible();
     await expect(page.locator("text=Waiting for agent")).toBeVisible();

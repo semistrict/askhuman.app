@@ -149,38 +149,86 @@ export function DiffReviewClient({
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("diff-review-comments-width", 384);
   const [fileListWidth, setFileListWidth] = usePersistedWidth("diff-review-file-list-width", 200);
 
-  // Group hunks by file
-  const fileGroups = useMemo(() => {
-    const groups: { filePath: string; hunks: ServerHunk[] }[] = [];
-    const seen = new Map<string, number>();
+  // Index hunks by file path
+  const hunksByFile = useMemo(() => {
+    const map = new Map<string, ServerHunk[]>();
     for (const hunk of hunks) {
-      const idx = seen.get(hunk.filePath);
-      if (idx !== undefined) {
-        groups[idx].hunks.push(hunk);
-      } else {
-        seen.set(hunk.filePath, groups.length);
-        groups.push({ filePath: hunk.filePath, hunks: [hunk] });
-      }
+      const existing = map.get(hunk.filePath) ?? [];
+      existing.push(hunk);
+      map.set(hunk.filePath, existing);
     }
-    return groups;
+    return map;
   }, [hunks]);
 
-  // File paths for navigator
-  const filePaths = useMemo(
-    () => fileGroups.map((g) => g.filePath),
-    [fileGroups]
-  );
+  // Parse description into sections with headings
+  type Section = { id: string; heading: string; level: number; markdown: string; fileHunks: ServerHunk[] };
+  const sections = useMemo(() => {
+    if (!description) return [];
+    const lines = description.split("\n");
+    const result: Section[] = [];
+    const usedFiles = new Set<string>();
+    let currentHeading = "";
+    let currentLevel = 0;
+    let currentLines: string[] = [];
+    let sectionIndex = 0;
 
-  // Thread counts per file for badges
-  const fileThreadCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of threads) {
-      if (t.file_path && !t.outdated) {
-        counts.set(t.file_path, (counts.get(t.file_path) ?? 0) + 1);
+    function flush() {
+      if (currentHeading || currentLines.length > 0) {
+        const headingText = currentHeading.replace(/^#+\s*/, "").trim();
+        // Check if heading matches a file path in the diff
+        const matchedHunks = hunksByFile.get(headingText);
+        if (matchedHunks) usedFiles.add(headingText);
+        result.push({
+          id: `section-${sectionIndex++}`,
+          heading: headingText,
+          level: currentLevel,
+          markdown: currentLines.join("\n").trim(),
+          fileHunks: matchedHunks ?? [],
+        });
+      }
+      currentLines = [];
+    }
+
+    for (const line of lines) {
+      const match = line.match(/^(#{1,6})\s+(.+)/);
+      if (match) {
+        flush();
+        currentHeading = line;
+        currentLevel = match[1].length;
+        currentLines.push(line);
+      } else {
+        currentLines.push(line);
       }
     }
-    return counts;
-  }, [threads]);
+    flush();
+
+    // Append any unmatched files as a final section
+    const unmatchedHunks: ServerHunk[] = [];
+    for (const [fp, fh] of hunksByFile) {
+      if (!usedFiles.has(fp)) unmatchedHunks.push(...fh);
+    }
+    if (unmatchedHunks.length > 0) {
+      result.push({
+        id: `section-${sectionIndex}`,
+        heading: "Other files",
+        level: 2,
+        markdown: "",
+        fileHunks: unmatchedHunks,
+      });
+    }
+
+    return result;
+  }, [description, hunksByFile]);
+
+  // ToC entries from sections with headings
+  const tocEntries = useMemo(
+    () => sections.filter((s) => s.heading && s.level > 0).map((s) => ({
+      id: s.id,
+      heading: s.heading,
+      level: s.level,
+    })),
+    [sections]
+  );
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -272,38 +320,28 @@ export function DiffReviewClient({
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* File navigator */}
+        {/* Table of contents */}
         <aside className="shrink-0 border-r border-border flex flex-col" style={{ width: fileListWidth }}>
           <div className="px-3 py-2 border-b border-border">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Files
-              <span className="ml-1.5 text-foreground">{filePaths.length}</span>
+              Contents
             </h2>
           </div>
           <nav className="flex-1 overflow-y-auto py-1">
-            {filePaths.map((fp) => {
-              const threadCount = fileThreadCounts.get(fp) ?? 0;
-              return (
-                <button
-                  key={fp}
-                  className="w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-muted/50 text-foreground/80 transition-colors"
-                  onClick={() => {
-                    const el = document.getElementById(`file-${fp}`);
-                    el?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  title={fp}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate flex-1 text-xs">{fp}</span>
-                    {threadCount > 0 && (
-                      <span className="shrink-0 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full">
-                        {threadCount}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+            {tocEntries.map((entry) => (
+              <button
+                key={entry.id}
+                className="w-full text-left px-3 py-1 text-foreground/80 hover:bg-muted/50 transition-colors"
+                style={{ paddingLeft: `${(entry.level - 1) * 12 + 12}px` }}
+                onClick={() => {
+                  const el = document.getElementById(entry.id);
+                  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                title={entry.heading}
+              >
+                <span className="text-xs truncate block">{entry.heading}</span>
+              </button>
+            ))}
           </nav>
         </aside>
 
@@ -311,17 +349,16 @@ export function DiffReviewClient({
 
         <main className="flex-1 overflow-y-auto px-6 py-8">
           <section className="space-y-6">
-            {description && (
-              <div className="prose prose-sm max-w-none rounded-lg border border-border bg-muted/30 p-4 text-sm text-foreground">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
-                  {description}
-                </ReactMarkdown>
-              </div>
-            )}
-
-            {fileGroups.map((group) => (
-              <div key={group.filePath} id={`file-${group.filePath}`} className="space-y-2">
-                {group.hunks.map((hunk, hunkIdx) => {
+            {sections.map((section) => (
+              <div key={section.id} id={section.id}>
+                {section.markdown && (
+                  <div className="prose prose-sm max-w-none text-sm text-foreground mb-4">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>
+                      {section.markdown}
+                    </ReactMarkdown>
+                  </div>
+                )}
+                {section.fileHunks.map((hunk, hunkIdx) => {
                   const language = detectLanguage(hunk.filePath);
                   const diffLines = parseHunkContent(hunk);
                   const additionsOnly = isAdditionsOnlyHunk(diffLines);
