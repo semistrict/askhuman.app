@@ -136,9 +136,9 @@ async function waitForPollResult(
   prefix: string
 ) {
   const session = SessionDO.getInstance(sessionId);
-  const immediate = await session.consumeAgentUpdate();
-  if (immediate.done || immediate.threads.length > 0) {
-    return formatPollResponse(immediate, sessionId, baseUrl, prefix);
+  if (await session.isDone()) {
+    const threads = await session.getThreads();
+    return formatPollResponse({ threads, done: true }, sessionId, baseUrl, prefix);
   }
   if (!(await session.hasHumanConnected())) {
     const { connected } = await session.waitForHumanConnection(HUMAN_CONNECT_TIMEOUT_MS);
@@ -189,13 +189,10 @@ export async function replyToComments(
 ) {
   const session = SessionDO.getInstance(sessionId);
   const messages: Message[] = [];
-  const repliedThreadIds: number[] = [];
   for (const r of replies) {
     const msg = await session.addMessage(r.threadId, "agent", r.text);
     messages.push(msg);
-    repliedThreadIds.push(r.threadId);
   }
-  await session.advanceCursorPastThreads(repliedThreadIds);
   const result = await waitForPollResult(sessionId, timeoutMs, baseUrl, prefix);
   return {
     sent: messages,

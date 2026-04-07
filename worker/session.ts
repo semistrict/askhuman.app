@@ -755,28 +755,6 @@ export class SessionDO extends DurableObject {
     );
   }
 
-  async advanceCursorPastThreads(threadIds: number[]): Promise<void> {
-    if (threadIds.length === 0) return;
-    const sql = this.ctx.storage.sql;
-    const placeholders = threadIds.map(() => "?").join(",");
-    const rows = sql.exec<{ max_id: number }>(
-      `SELECT MAX(id) as max_id FROM messages WHERE thread_id IN (${placeholders})`,
-      ...threadIds
-    ).toArray();
-    if (rows.length === 0 || rows[0].max_id === null) return;
-    const maxId = rows[0].max_id;
-    const cursorRows = sql.exec<{ value: number }>(
-      "SELECT value FROM state WHERE key = 'agent_cursor'"
-    ).toArray();
-    const currentCursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
-    if (maxId > currentCursor) {
-      sql.exec(
-        "INSERT INTO state (key, value) VALUES ('agent_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        maxId
-      );
-    }
-  }
-
   async addMessage(threadId: number, role: string, text: string): Promise<Message> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
@@ -883,7 +861,7 @@ export class SessionDO extends DurableObject {
     this.broadcast({ type: "view" });
   }
 
-  async getThreads(): Promise<Thread[]> {
+  private getAllThreadsSync(): Thread[] {
     const sql = this.ctx.storage.sql;
     const threadRows = sql.exec<{
       id: number; hunk_id: string | null; line: number | null;
@@ -911,36 +889,21 @@ export class SessionDO extends DurableObject {
     return threads;
   }
 
+  async getThreads(): Promise<Thread[]> {
+    return this.getAllThreadsSync();
+    return threads;
+  }
+
   async waitForComments(timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS): Promise<{ threads: Thread[]; done?: boolean; noHuman?: boolean }> {
-    const sql = this.ctx.storage.sql;
-
-    // Get or initialize agent cursor
-    const cursorRows = sql.exec<{ value: number }>(
-      "SELECT value FROM state WHERE key = 'agent_cursor'"
-    ).toArray();
-    const cursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
-
-    // Check for new human messages since cursor
-    const newMessages = sql.exec<{ id: number }>(
-      "SELECT id FROM messages WHERE id > ? AND role = 'human' LIMIT 1",
-      cursor
-    ).toArray();
-
     const done = await this.isDone();
 
-    if (newMessages.length > 0) {
-      return {
-        ...this.collectAndAdvanceCursor(cursor),
-        done: done || undefined,
-      };
-    }
-
-    // Already done with no unread comments — return immediately
+    // Already done — return all threads immediately
     if (done) {
-      return { threads: [], done: true };
+      const threads = await this.getThreads();
+      return { threads, done: true };
     }
 
-    // Wait for new activity, but fail fast if no human tabs stay connected for 5s.
+    // Wait for Done to be clicked
     return new Promise<{ threads: Thread[]; noHuman?: boolean }>(async (resolve) => {
       let noHumanTimer: ReturnType<typeof setTimeout> | null = null;
       let settled = false;
@@ -971,17 +934,7 @@ export class SessionDO extends DurableObject {
       };
 
       const timer = setTimeout(() => {
-        const currentCursorRows = sql.exec<{ value: number }>(
-          "SELECT value FROM state WHERE key = 'agent_cursor'"
-        ).toArray();
-        const currentCursor = currentCursorRows.length > 0 ? currentCursorRows[0].value : 0;
-        const result = this.collectThreadsSinceCursor(currentCursor);
-        if (result.threads.length > 0) {
-          this.advanceCursor(result.threads);
-          finish(result);
-        } else {
-          finish({ threads: [] });
-        }
+        finish({ threads: [] });
       }, timeoutMs);
 
       const waiterResolve = (value: { threads: Thread[]; done?: boolean }) => {
@@ -1015,90 +968,6 @@ export class SessionDO extends DurableObject {
     });
   }
 
-  async consumeAgentUpdate(): Promise<{ threads: Thread[]; done?: boolean }> {
-    const sql = this.ctx.storage.sql;
-    const cursorRows = sql.exec<{ value: number }>(
-      "SELECT value FROM state WHERE key = 'agent_cursor'"
-    ).toArray();
-    const cursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
-    const newMessages = sql.exec<{ id: number }>(
-      "SELECT id FROM messages WHERE id > ? AND role = 'human' LIMIT 1",
-      cursor
-    ).toArray();
-    const done = await this.isDone();
-
-    if (newMessages.length > 0) {
-      const result = this.collectAndAdvanceCursor(cursor);
-      return { ...result, done: done || undefined };
-    }
-    if (done) {
-      return { threads: [], done: true };
-    }
-    return { threads: [] };
-  }
-
-  private collectAndAdvanceCursor(cursor: number): { threads: Thread[] } {
-    const result = this.collectThreadsSinceCursor(cursor);
-    this.advanceCursor(result.threads);
-    return result;
-  }
-
-  private collectThreadsSinceCursor(cursor: number): { threads: Thread[] } {
-    const sql = this.ctx.storage.sql;
-
-    const threadIds = sql.exec<{ thread_id: number }>(
-      "SELECT DISTINCT thread_id FROM messages WHERE id > ? AND role = 'human'",
-      cursor
-    ).toArray().map((r) => r.thread_id);
-
-    if (threadIds.length === 0) {
-      return { threads: [] };
-    }
-
-    const threads: Thread[] = [];
-    for (const tid of threadIds) {
-      const threadRows = sql.exec<{
-        id: number; hunk_id: string | null; line: number | null;
-        file_path: string | null; outdated: number; created_at: number;
-      }>(
-        "SELECT id, hunk_id, line, file_path, outdated, created_at FROM threads WHERE id = ?", tid
-      ).toArray();
-      if (threadRows.length === 0) continue;
-      const t = threadRows[0];
-      const messages = sql.exec(
-        "SELECT id, thread_id, role, text, created_at FROM messages WHERE thread_id = ? ORDER BY id",
-        tid
-      ).toArray() as unknown as Message[];
-      threads.push({
-        id: t.id,
-        hunk_id: t.hunk_id,
-        line: t.line,
-        file_path: t.file_path,
-        outdated: t.outdated === 1,
-        created_at: t.created_at,
-        messages,
-      });
-    }
-
-    return { threads };
-  }
-
-  private advanceCursor(threads: Thread[]) {
-    const sql = this.ctx.storage.sql;
-    let maxId = 0;
-    for (const t of threads) {
-      for (const m of t.messages) {
-        if (m.id > maxId) maxId = m.id;
-      }
-    }
-    if (maxId > 0) {
-      sql.exec(
-        "INSERT INTO state (key, value) VALUES ('agent_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        maxId
-      );
-    }
-  }
-
   private resolveWaiters() {
     const waiters = this.waiters;
     this.waiters = [];
@@ -1107,19 +976,10 @@ export class SessionDO extends DurableObject {
     ).toArray();
     const done = doneRows.length > 0 && doneRows[0].value === 1;
 
+    const allThreads = this.getAllThreadsSync();
     for (const w of waiters) {
       clearTimeout(w.timer);
-      const sql = this.ctx.storage.sql;
-      const cursorRows = sql.exec<{ value: number }>(
-        "SELECT value FROM state WHERE key = 'agent_cursor'"
-      ).toArray();
-      const cursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
-      const result = this.collectAndAdvanceCursor(cursor);
-      if (done) {
-        w.resolve({ ...result, done: true });
-      } else {
-        w.resolve(result);
-      }
+      w.resolve({ threads: allThreads, done: done || undefined });
     }
 
     const activityWaiters = this.activityWaiters;
