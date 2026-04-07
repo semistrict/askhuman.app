@@ -3,6 +3,7 @@ import type { Thread } from "@/worker/session";
 import { ReviewClient } from "./review-client";
 import { DiffReviewClient } from "./diff-review-client";
 import { FileReviewClient } from "./file-review-client";
+import { PlaygroundClient } from "./playground-client";
 
 export default async function SessionPage({
   params,
@@ -36,6 +37,19 @@ export default async function SessionPage({
       <FileReviewClient
         sessionId={id}
         files={files}
+        initialThreads={threads}
+        isDone={isDone}
+      />
+    );
+  }
+
+  if (contentType === "playground") {
+    const data = await session.getContent();
+    const threads: Thread[] = await session.getThreads();
+    return (
+      <PlaygroundClient
+        sessionId={id}
+        html={data?.content ?? ""}
         initialThreads={threads}
         isDone={isDone}
       />

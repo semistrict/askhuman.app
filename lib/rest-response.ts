@@ -158,6 +158,52 @@ export function fileUpdateMarkdown(result: {
   ].join("\n");
 }
 
+export function playgroundSubmitMarkdown(result: {
+  sessionId: string;
+  url: string;
+  message?: string;
+}): string {
+  return [
+    "# Playground Session",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    ...(result.message ? ["", "## Next Steps", "", result.message] : []),
+  ].join("\n");
+}
+
+export function playgroundUpdateMarkdown(result: {
+  sessionId: string;
+  url: string;
+  message?: string;
+}): string {
+  return [
+    "# Playground Updated",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    ...(result.message ? ["", result.message] : []),
+  ].join("\n");
+}
+
+export function playgroundPollMarkdown(result: {
+  status: "comments" | "timeout" | "done" | "error";
+  threads: { id: number; messages: { role: string; text: string }[] }[];
+  result?: string | null;
+  message?: string;
+  next?: string;
+}): string {
+  return [
+    `# ${result.status}`,
+    ...(result.message ? ["", result.message] : []),
+    ...(result.result != null ? ["", "## Result", "", result.result] : []),
+    ...(result.threads.length
+      ? ["", "## Comments", "", ...result.threads.map((t) => formatThread(t))]
+      : []),
+    ...(result.next ? ["", "## Next", "", result.next] : []),
+  ].join("\n");
+}
+
 export function pollMarkdown(result: {
   status: "comments" | "timeout" | "done" | "error";
   threads: {

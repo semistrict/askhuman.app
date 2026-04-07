@@ -601,22 +601,37 @@ export class SessionDO extends DurableObject {
     return rows.length > 0 ? { content: rows[0].markdown, created_at: rows[0].created_at } : null;
   }
 
-  async setContentType(type: "plan" | "diff" | "files"): Promise<void> {
-    const value = type === "diff" ? 1 : type === "files" ? 2 : 0;
+  async setContentType(type: "plan" | "diff" | "files" | "playground"): Promise<void> {
+    const value = type === "diff" ? 1 : type === "files" ? 2 : type === "playground" ? 3 : 0;
     this.ctx.storage.sql.exec(
       "INSERT INTO state (key, value) VALUES ('content_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       value
     );
   }
 
-  async getContentType(): Promise<"plan" | "diff" | "files"> {
+  async getContentType(): Promise<"plan" | "diff" | "files" | "playground"> {
     const rows = this.ctx.storage.sql.exec<{ value: number }>(
       "SELECT value FROM state WHERE key = 'content_type'"
     ).toArray();
     if (rows.length === 0) return "plan";
     if (rows[0].value === 1) return "diff";
     if (rows[0].value === 2) return "files";
+    if (rows[0].value === 3) return "playground";
     return "plan";
+  }
+
+  async setResult(text: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO text_state (key, value) VALUES ('result', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      text
+    );
+  }
+
+  async getResult(): Promise<string | null> {
+    const rows = this.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM text_state WHERE key = 'result'"
+    ).toArray();
+    return rows.length > 0 ? rows[0].value : null;
   }
 
   async setDescription(text: string): Promise<void> {

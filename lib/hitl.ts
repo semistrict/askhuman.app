@@ -13,7 +13,8 @@ type AgentConnectionKind =
   | "diff_reply"
   | "diff_poll"
   | "file_poll"
-  | "file_reply";
+  | "file_reply"
+  | "playground_poll";
 
 function reviewUrl(baseUrl: string, sessionId: string): string {
   return `${baseUrl}/s/${sessionId}`;
