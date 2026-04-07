@@ -127,7 +127,7 @@ function handleRootHtml(): Response {
   <h1>askhuman<span>.app</span></h1>
 
   <div class="cmd" onclick="copyCmd(this, 'npx skills add semistrict/askhuman.app')">
-    <div class="label">Install all skills</div>
+    <div class="label">Install skill</div>
     <pre>npx skills add semistrict/askhuman.app</pre>
     <span class="copy">copy</span>
   </div>
