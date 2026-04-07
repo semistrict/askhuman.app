@@ -105,6 +105,14 @@ function handleRootHtml(): Response {
     font-size: 0.6875rem; color: #6b6560;
     margin-top: -0.25rem; margin-bottom: 1.25rem;
   }
+  .or {
+    text-align: center; font-size: 0.6875rem; color: #4a4540;
+    margin: 1rem 0;
+    display: flex; align-items: center; gap: 1rem;
+  }
+  .or::before, .or::after {
+    content: ''; flex: 1; height: 1px; background: #2a2724;
+  }
   .links {
     font-size: 0.75rem; display: flex; gap: 1.25rem;
     margin-top: 1.5rem; padding-top: 1.25rem;
@@ -123,6 +131,8 @@ function handleRootHtml(): Response {
     <pre>npx skills add semistrict/askhuman.app</pre>
     <span class="copy">copy</span>
   </div>
+
+  <div class="or">or</div>
 
   <div class="cmd" onclick="copyCmd(this, 'claude &quot;$(curl -s https://askhuman.app) -- review my current diff&quot;')">
     <div class="label">Prompt-inject yourself</div>
