@@ -18,6 +18,14 @@ diff_created: |
 
   When status is "comments", address each numbered comment.
 
+  IMPORTANT: The description MUST narrate the change. Do not just
+  submit a diff with a bare title. Describe WHY each file changed,
+  what the reviewer should focus on, and break large changes into
+  sections with markdown headings (## per file or logical group).
+  The server validates that descriptions have enough headers,
+  enough prose (>= 15% of diff lines), and no section longer
+  than 200 lines. Submissions that fail these checks are rejected.
+
 diff_updated: >-
   Diff updated. Comments on changed hunks are now marked outdated.
   Continue polling for new comments.
@@ -28,3 +36,18 @@ diff_done: >-
 diff_already_done: >-
   This review session is already complete. Create a new diff review session
   instead.
+
+diff_description_no_headers: >-
+  The description must be valid markdown with headers (# or ##) to
+  organize the review. Add at least one header per ~100 lines.
+  Current: {HEADER_COUNT} header(s) for {LINE_COUNT} lines.
+
+diff_description_section_too_long: >-
+  Section "{SECTION}" is {SECTION_LINES} lines long. Keep each
+  section under 200 lines so the reviewer can navigate easily.
+  Split it into smaller subsections.
+
+diff_description_too_little_prose: >-
+  The description has only {PROSE_LINES} lines of prose for a
+  {DIFF_LINES}-line diff ({PERCENT}%). Write at least 15% as many
+  lines of description as the diff to give the reviewer context.

@@ -147,6 +147,7 @@ export function DiffReviewClient({
   const [isDone, setIsDone] = useState(initialIsDone);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("diff-review-comments-width", 384);
+  const [fileListWidth, setFileListWidth] = usePersistedWidth("diff-review-file-list-width", 200);
 
   // Group hunks by file
   const fileGroups = useMemo(() => {
@@ -163,6 +164,23 @@ export function DiffReviewClient({
     }
     return groups;
   }, [hunks]);
+
+  // File paths for navigator
+  const filePaths = useMemo(
+    () => fileGroups.map((g) => g.filePath),
+    [fileGroups]
+  );
+
+  // Thread counts per file for badges
+  const fileThreadCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of threads) {
+      if (t.file_path && !t.outdated) {
+        counts.set(t.file_path, (counts.get(t.file_path) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [threads]);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -254,6 +272,43 @@ export function DiffReviewClient({
       </header>
 
       <div className="flex flex-1 overflow-hidden">
+        {/* File navigator */}
+        <aside className="shrink-0 border-r border-border flex flex-col" style={{ width: fileListWidth }}>
+          <div className="px-3 py-2 border-b border-border">
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Files
+              <span className="ml-1.5 text-foreground">{filePaths.length}</span>
+            </h2>
+          </div>
+          <nav className="flex-1 overflow-y-auto py-1">
+            {filePaths.map((fp) => {
+              const threadCount = fileThreadCounts.get(fp) ?? 0;
+              return (
+                <button
+                  key={fp}
+                  className="w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-muted/50 text-foreground/80 transition-colors"
+                  onClick={() => {
+                    const el = document.getElementById(`file-${fp}`);
+                    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  title={fp}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="truncate flex-1 text-xs">{fp}</span>
+                    {threadCount > 0 && (
+                      <span className="shrink-0 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full">
+                        {threadCount}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <ResizeHandle side="left" onDrag={setFileListWidth} minWidth={120} />
+
         <main className="flex-1 overflow-y-auto px-6 py-8">
           <section className="space-y-6">
             {description && (
@@ -265,7 +320,7 @@ export function DiffReviewClient({
             )}
 
             {fileGroups.map((group) => (
-              <div key={group.filePath} className="space-y-2">
+              <div key={group.filePath} id={`file-${group.filePath}`} className="space-y-2">
                 {group.hunks.map((hunk, hunkIdx) => {
                   const language = detectLanguage(hunk.filePath);
                   const diffLines = parseHunkContent(hunk);
