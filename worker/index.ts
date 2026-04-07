@@ -114,6 +114,7 @@ function handleRootHtml(): Response {
     transition: border-color 0.15s;
   }
   .panel.active { display: block; }
+  .panel-container { min-height: 8.5rem; }
   .panel:hover { border-color: #4a4540; }
   .panel pre {
     font-family: inherit; font-size: 0.8125rem;
@@ -157,6 +158,7 @@ function handleRootHtml(): Response {
     <button class="tab" onclick="showTab('playground')">playground</button>
   </div>
 
+  <div class="panel-container">
   <div class="panel active" id="tab-diff" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/diff -F description=@description.md -F diff=@current.diff')">
     <pre>curl -s -X POST https://askhuman.app/diff \\
   -F description=@description.md \\
@@ -185,6 +187,7 @@ function handleRootHtml(): Response {
   -F "html=<playground.html"</pre>
     <span class="copy">copy</span>
     <p class="panel-note">Any self-contained HTML. Results via postMessage. User interacts, clicks Done.</p>
+  </div>
   </div>
 
   <div class="links">
