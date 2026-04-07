@@ -1,0 +1,52 @@
+# Connection / presence -- shared across all tools
+
+plan_not_connected: >-
+  The same user you are already interacting with has not connected yet.
+  Open it for them with Chrome app mode:
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  --app="{URL}" &
+  Or fall back to: open "{URL}" / xdg-open "{URL}"
+  Or just show the URL to the user.
+
+plan_no_human: >-
+  No human reviewer tabs have been connected to this session for at
+  least 5 seconds. Ask the same user you are already interacting with
+  to open {URL} again, or open it for them with: open "{URL}"
+
+# Diff parsing errors
+
+match_empty_diff: >-
+  Diff body is empty. Submit a non-empty diff.
+
+match_no_hunks: >-
+  Diff body did not contain any parseable hunks. Submit a unified git diff
+  with at least one hunk.
+
+# Route-level errors
+
+route_diff_get: >-
+  POST a diff body to create a diff review session
+
+route_plan_get: >-
+  POST a markdown body to create a plan review session
+
+route_diff_reply_get: >-
+  POST replies to this endpoint
+
+route_plan_reply_get: >-
+  POST replies to this endpoint
+
+route_files_get: >-
+  POST files to create a file review session
+
+route_files_reply_get: >-
+  POST replies to this endpoint
+
+# Form field validation
+
+form_missing_field: >-
+  Missing multipart field "{FIELD}".
+
+form_mismatched_replies: >-
+  Mismatched reply fields. Provide the same number of "threadId" and "text"
+  form fields.

@@ -1,0 +1,28 @@
+playground_created: |
+  Playground session created.
+
+  Open the playground for the user. Try Chrome app mode for a
+  clean window:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
+  Or just show the URL to the user (they cannot see this text).
+
+  Poll for the result (returns when the user clicks Done):
+    curl -s "{BASE_URL}/playground/{SESSION_ID}/poll"
+
+  The HTML can send results back via:
+    window.parent.postMessage(
+      { type: 'askhuman:result', data: '...' }, '*'
+    )
+
+  After changes, update the playground HTML:
+    curl -s -X POST "{BASE_URL}/playground" \
+      -F sessionId={SESSION_ID} \
+      -F "html=<playground.html"
+
+playground_updated: >-
+  Playground updated with new HTML. Continue polling for the result.
+
+playground_no_html: >-
+  Missing "html" field. Submit the playground HTML as a multipart
+  form field named "html".

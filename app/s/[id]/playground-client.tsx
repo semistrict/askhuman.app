@@ -111,13 +111,16 @@ export function PlaygroundClient({
       <div className="flex flex-1 overflow-hidden">
         {/* Playground iframe */}
         <main className="flex-1 overflow-hidden">
-          <iframe
-            ref={iframeRef}
-            srcDoc={html}
-            sandbox="allow-scripts allow-forms"
-            className="w-full h-full border-0 bg-background"
-            title="Playground"
-          />
+          <div className="relative w-full h-full">
+            <iframe
+              ref={iframeRef}
+              srcDoc={html}
+              sandbox="allow-scripts allow-forms"
+              className="w-full h-full border-0 bg-background"
+              title="Playground"
+            />
+            {isDone && <div className="absolute inset-0" />}
+          </div>
         </main>
 
         <ResizeHandle side="right" onDrag={setCommentsWidth} minWidth={200} />

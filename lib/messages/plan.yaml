@@ -1,0 +1,33 @@
+plan_instructions: |-
+  - Open the review page in the same user's browser you are already interacting with.
+    Try Chrome app mode for a clean window:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{URL}" &
+    Or fall back to: open "{URL}" / xdg-open "{URL}"
+    Or just show the URL to the user (they cannot see this text).
+  - Poll for the user's comments (returns when they click Done):
+     curl -s {POLL_URL}
+  - When status is "comments", address each numbered comment.
+
+plan_comments: >-
+  The reviewer is done. Address each numbered comment below.
+
+plan_timeout: >-
+  No new comments yet. The human may still be reviewing. Poll again.
+
+plan_done: >-
+  The human has finished reviewing. No further polling needed.
+
+plan_change_pickup_diff: >-
+  If you make code changes in response to these comments, resubmit the
+  updated diff with a fresh POST to /diff so the reviewer can see the new
+  code.
+
+plan_change_pickup_files: >-
+  If you make code changes in response to these comments, re-upload all
+  files with a fresh POST to /files so the reviewer can see the updated
+  code.
+
+plan_change_pickup_generic: >-
+  If you make code changes in response to these comments, make sure the same
+  user can review the updated result. Start a fresh review session with the
+  updated plan or diff when needed.

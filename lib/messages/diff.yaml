@@ -1,0 +1,30 @@
+diff_created: |
+  Diff review session created.
+
+  Open the review page for the user. Try Chrome app mode for a
+  clean window:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
+  Or just show the URL to the user (they cannot see this text).
+
+  Poll for reviewer comments (returns when they click Done):
+    curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
+
+  After code changes, resubmit the updated diff:
+    curl -s -X POST "{BASE_URL}/diff" \
+      -F sessionId={SESSION_ID} \
+      -F description=@description.md \
+      -F diff=@current.diff
+
+  When status is "comments", address each numbered comment.
+
+diff_updated: >-
+  Diff updated. Comments on changed hunks are now marked outdated.
+  Continue polling for new comments.
+
+diff_done: >-
+  The review session is complete. No further polling needed.
+
+diff_already_done: >-
+  This review session is already complete. Create a new diff review session
+  instead.

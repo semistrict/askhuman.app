@@ -1,6 +1,9 @@
 # askhuman.app - Human-in-the-loop review tools for AI agents
 
-> Sometimes your AI agent needs human input from the same user it is already interacting with. Submit plans or diffs via curl and REST, open the returned URL in that user's browser, and loop on comments until done.
+> Sometimes your AI agent needs human input from the same user
+> it is already interacting with. Submit plans, diffs, files, or
+> custom HTML playgrounds via curl. Open the returned URL in that
+> user's browser. Poll for their feedback when they click Done.
 
 ## Quick Start (curl)
 
@@ -10,58 +13,62 @@ curl https://askhuman.app
 
 Detects curl and prints session-specific instructions.
 
-## REST API
+## Tools
 
 ### Plan Review
 
-- [Submit plan](https://askhuman.app/plan): POST with markdown body - creates session, returns `{ sessionId, url, instructions }`
-- [Poll for comments](https://askhuman.app/plan/{id}/poll): GET - long-polls up to 10 min, returns `{ status, threads }`. Status: "comments", "timeout", or "done".
-- [Reply + auto-poll](https://askhuman.app/plan/{id}/reply): POST with repeated form fields `threadId` + `text` - replies then polls for next round.
+Submit a markdown plan for line-by-line review.
+
+- `POST /plan` -- markdown body, returns `{ sessionId, url, instructions }`
+- `GET /plan/{id}/poll` -- long-polls, returns when reviewer clicks Done
+- Flow: submit -> open URL -> poll -> address numbered comments
 
 ### Diff Review
 
-- [Submit diff](https://askhuman.app/diff): POST multipart form data with `description` and `diff` - creates session, returns `{ sessionId, url, message }`
-- [Update diff](https://askhuman.app/diff): POST multipart with `sessionId`, `description`, and `diff` - replaces hunks, marks outdated comments, returns confirmation
-- [Poll for comments](https://askhuman.app/diff/{id}/poll): GET - long-polls up to 10 min, returns `{ status, threads }`
-- [Reply + auto-poll](https://askhuman.app/diff/{id}/reply): POST - same reply behavior as plan review.
+Submit a unified diff with a description for review.
+
+- `POST /diff` -- multipart `description` + `diff`, returns `{ sessionId, url, message }`
+- `POST /diff` with `sessionId` -- resubmit after code changes (resets done, marks changed-hunk comments outdated)
+- `GET /diff/{id}/poll` -- long-polls, returns when reviewer clicks Done
+- Flow: submit -> open URL -> poll -> address comments -> resubmit if needed
 
 ### File Review
 
-- [Submit files](https://askhuman.app/files): POST multipart where each field name is a file path and the value is the file content. Creates session, returns `{ sessionId, url, message }`.
-- [Update files](https://askhuman.app/files): POST multipart with `sessionId` plus file fields. Replaces all files; files not re-uploaded are removed. Comments on removed files are marked outdated.
-- [Poll for comments](https://askhuman.app/files/{id}/poll): GET - long-polls up to 10 min.
-- [Reply + auto-poll](https://askhuman.app/files/{id}/reply): POST - same reply behavior as plan review.
+Submit named files for review with a file selector UI.
 
-## Workflow
+- `POST /files` -- multipart where field name = file path, value = content
+- `POST /files` with `sessionId` -- re-upload all files (omitted files are removed, their comments marked outdated)
+- `GET /files/{id}/poll` -- long-polls, returns when reviewer clicks Done
+- Flow: submit -> open URL -> poll -> address comments -> re-upload if needed
 
-### Plan Review
-1. Submit plan: `POST /plan` with markdown -> `{ sessionId, url, instructions }`
-2. Open the URL for the human reviewer
-3. Poll: `GET /plan/{id}/poll` -> blocks until comments or timeout
-4. Reply: `POST /plan/{id}/reply` with repeated form fields `threadId` + `text` -> replies + auto-polls
-5. Loop 3-4 until status is "done"
-When poll status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
+### Playground
 
-### Diff Review
-1. Submit diff: `POST /diff` with multipart `description` + `diff` -> `{ sessionId, url, message }`
-2. Open the URL for the human reviewer
-3. Poll: `GET /diff/{id}/poll` -> blocks until comments or timeout
-4. Reply: `POST /diff/{id}/reply` with repeated form fields `threadId` + `text`
-5. After code changes, resubmit: `POST /diff` with multipart `sessionId` + `description` + `diff`
-6. Comments on changed hunks are automatically marked outdated
-7. Loop 3-5 until status is "done"
-When poll status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
+Submit a self-contained HTML page as an interactive UI.
 
-### File Review
-1. Submit files: `POST /files` with multipart fields (field name = file path, value = file content)
-2. Open the URL for the human reviewer
-3. Poll: `GET /files/{id}/poll` -> blocks until comments or timeout
-4. Reply: `POST /files/{id}/reply` with repeated form fields `threadId` + `text`
-5. After code changes, re-upload: `POST /files` with `sessionId` + all file fields
-6. Files not included are removed; comments on removed files are marked outdated
-7. Loop 3-5 until status is "done"
-When poll status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
+- `POST /playground` -- multipart with `html` field
+- `POST /playground` with `sessionId` -- update the HTML
+- `GET /playground/{id}/poll` -- long-polls, returns `{ status, threads, result }`
+- The HTML sends structured results via `window.parent.postMessage({ type: 'askhuman:result', data: '...' }, '*')`
+- Flow: submit HTML -> open URL -> human interacts -> clicks Done -> poll returns result + comments
+
+## Common Patterns
+
+All tools share the same interaction pattern:
+
+1. Agent submits content via `POST`
+2. Agent opens the returned URL for the human reviewer
+3. Agent polls with `GET .../poll` (long-polls up to 10 min)
+4. Human reviews, leaves numbered comments, clicks Done
+5. Poll returns with status "done" and all comments
+6. Agent addresses each numbered comment
+7. If code changes are needed, agent resubmits and loops back to step 3
+
+Poll statuses: `"done"` (comments ready), `"timeout"` (poll again),
+`"error"` (human not connected, open the URL).
 
 ## Data Model
 
-Threads have optional `hunk_id`, `line`, and `file_path` fields. For plan review, `line` is a markdown line number. For diff review, `hunk_id` identifies the hunk, `line` is the offset within that hunk, and `file_path` is the source file. For file review, `file_path` identifies the file and `line` is the line number. Threads may be marked `outdated` when the diff is resubmitted and the hunk changes, or when a file is removed during re-upload. Null for general comments. Each thread contains messages with `role` ("human" or "agent") and `text`.
+Threads have optional `hunk_id`, `line`, and `file_path` fields
+depending on the tool. Each thread contains messages with `role`
+("human" or "agent") and `text`. Threads may be marked `outdated`
+when content is resubmitted and the underlying hunk/file changes.
