@@ -155,7 +155,7 @@ test.describe("Diff Review", () => {
     expect(body.url).toContain(`/s/${body.sessionId}`);
     expect(body.message).toContain(`/diff/${body.sessionId}/request`);
     expect(body.message).toContain(`/diff/${body.sessionId}/complete`);
-    expect(body.message).toContain("both updates the visible review and waits for comments");
+    expect(body.message).toContain("updates the visible review and waits for");
   });
 
   test("diff endpoint rejects a non-empty body", async ({ request }) => {

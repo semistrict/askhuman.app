@@ -9,14 +9,16 @@
 # =============================================================================
 
 plan_instructions: |-
-  1. Open the review page in the same user's browser you are already interacting with:
+  - Open the review page in the same user's browser you are already interacting with:
      open "{URL}"
-  2. Poll for human comments (long-polls up to 10 min, returns immediately when comments arrive):
+     (or show it to them so they can open it, they cannot see this text)
+  - Poll for the user's comments
      curl -s {POLL_URL}
-  3. The response has a "status" field: "comments" (new feedback), "timeout" (no activity, poll again), or "done" (human finished reviewing).
-  4. When status is "comments", immediately begin addressing the comments. Do not wait for confirmation. Make any requested code changes first. Then reply to each thread and auto-poll for the next round. If no code changes are needed, reply immediately:
+    (long-polls up to 10 min, returns immediately when comments arrive)
+  - When status is "comments", immediately begin addressing the comments. Do not wait for confirmation.
+    Make any requested code changes first. Then reply to each thread and auto-poll for the next round.
+    If no code changes are needed, reply immediately:
      curl -s -X POST {REPLY_URL} -F threadId=1 -F text='your reply'
-  5. The reply response also has "status"/"threads" -- loop until status is "done".
 
 plan_comments: >-
   New review comments arrived. Immediately begin addressing them. Do not wait
@@ -57,12 +59,18 @@ plan_change_pickup_generic: >-
 diff_session_created: |
   Diff session created.
 
-  Send each review request with the latest full diff plus a markdown description that contains ```patch fences.
+  Send each review request with the latest full diff plus a markdown
+  description that contains ```patch fences.
   {REQUEST_CURL}
 
-  This /request call both updates the visible review and waits for comments. After it succeeds, use /poll to keep waiting without resending the multipart body.
-  Each ```patch block should contain literal diff text from the hunk. It can be the full hunk or just enough of the beginning and end, with ... between them, to identify the hunk uniquely.
-  You can make matching more deterministic by putting the file path and hunk header on the opening line, for example:
+  This /request call both updates the visible review and waits for
+  comments. After it succeeds, use /poll to keep waiting without
+  resending the multipart body.
+  Each ```patch block should contain literal diff text from the hunk.
+  It can be the full hunk or just enough of the beginning and end,
+  with ... between them, to identify the hunk uniquely.
+  You can make matching more deterministic by putting the file path
+  and hunk header on the opening line, for example:
   ```patch foo.ts @@ -1,3 +1,4 @@
    const x = 1;
   ...
@@ -70,10 +78,15 @@ diff_session_created: |
   ```
   {REQUEST_LIMIT}
 
-  Do not submit multiple different /request calls at once. If you are only waiting for comments after a successful /request, use /poll instead of resending the multipart body. If you are sure the current request is abandoned and there are no unread comments, dismiss it first with:
+  Do not submit multiple different /request calls at once. If you are
+  only waiting for comments after a successful /request, use /poll
+  instead of resending the multipart body. If you are sure the current
+  request is abandoned and there are no unread comments, dismiss it
+  first with:
   {DISMISS_CURL}
 
-  When every hunk in the latest diff has been reviewed, finish with: {COMPLETE_CURL}
+  When every hunk in the latest diff has been reviewed, finish with:
+  {COMPLETE_CURL}
 
 diff_comments: >-
   New review comments arrived. Immediately begin addressing them. Do not wait
@@ -184,9 +197,13 @@ diff_dismiss_unread: >-
   updated diff directly -- no dismiss needed.
 
 diff_churn_rejected: |
-  Request rejected because {DIFFERENT_COUNT} of {BASELINE_COUNT} hunks changed since the last submitted diff, which is more than 50%.
-  This safety check is meant to catch cases where the agent may have changed the code substantially without intentionally refreshing the review flow.
-  If you really do want to replace the review snapshot with this much change, re-run the same request with:
+  Request rejected because {DIFFERENT_COUNT} of {BASELINE_COUNT} hunks
+  changed since the last submitted diff, which is more than 50%.
+  This safety check is meant to catch cases where the agent may have
+  changed the code substantially without intentionally refreshing the
+  review flow.
+  If you really do want to replace the review snapshot with this much
+  change, re-run the same request with:
   curl -s -X POST "{BASE_URL}/diff/{SESSION_ID}/request" \
     -F description=@description.md \
     -F diff=@current.diff \
