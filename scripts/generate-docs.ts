@@ -113,7 +113,7 @@ writeFileSync(resolve(ROOT, "public/llms.txt"), llmsTxt);
 console.log("wrote public/llms.txt");
 
 // ---------------------------------------------------------------------------
-// .claude/skills/diff-review/SKILL.md
+// skills/diff-review/SKILL.md
 // ---------------------------------------------------------------------------
 
 const diffSkill = `---
@@ -172,13 +172,13 @@ Use the askhuman curl API to get human feedback on code changes.
 `;
 
 writeFileSync(
-  resolve(ROOT, ".claude/skills/diff-review/SKILL.md"),
+  resolve(ROOT, "skills/diff-review/SKILL.md"),
   diffSkill
 );
-console.log("wrote .claude/skills/diff-review/SKILL.md");
+console.log("wrote skills/diff-review/SKILL.md");
 
 // ---------------------------------------------------------------------------
-// .claude/skills/file-review/SKILL.md
+// skills/file-review/SKILL.md
 // ---------------------------------------------------------------------------
 
 const fileSkill = `---
@@ -238,16 +238,16 @@ Use the askhuman curl API to get human feedback on files.
 `;
 
 writeFileSync(
-  resolve(ROOT, ".claude/skills/file-review/SKILL.md"),
+  resolve(ROOT, "skills/file-review/SKILL.md"),
   fileSkill
 );
-console.log("wrote .claude/skills/file-review/SKILL.md");
+console.log("wrote skills/file-review/SKILL.md");
 
 // ---------------------------------------------------------------------------
-// .claude/skills/playground/SKILL.md
+// skills/playground/SKILL.md
 // ---------------------------------------------------------------------------
 
-const playgroundDir = resolve(ROOT, ".claude/skills/playground");
+const playgroundDir = resolve(ROOT, "skills/playground");
 import { mkdirSync } from "node:fs";
 try { mkdirSync(playgroundDir, { recursive: true }); } catch {}
 
@@ -317,10 +317,10 @@ writeFileSync(
   resolve(playgroundDir, "SKILL.md"),
   playgroundSkill
 );
-console.log("wrote .claude/skills/playground/SKILL.md");
+console.log("wrote skills/playground/SKILL.md");
 
 // ---------------------------------------------------------------------------
-// .claude/skills/plan-review/SKILL.md
+// skills/plan-review/SKILL.md
 // ---------------------------------------------------------------------------
 
 const planSkill = `---
@@ -366,9 +366,9 @@ Use the askhuman curl API to get human feedback on a plan.
 `;
 
 writeFileSync(
-  resolve(ROOT, ".claude/skills/plan-review/SKILL.md"),
+  resolve(ROOT, "skills/plan-review/SKILL.md"),
   planSkill
 );
-console.log("wrote .claude/skills/plan-review/SKILL.md");
+console.log("wrote skills/plan-review/SKILL.md");
 
 console.log("done");
