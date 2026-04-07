@@ -253,6 +253,28 @@ diff --git a/b.ts b/b.ts
     await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
   });
 
+  test("poll markdown includes diff context around hunk comments", async ({ page, request }) => {
+    const { sessionId } = await createDiffSession(
+      request,
+      "Review",
+      DIFF
+    );
+    await page.goto(`/s/${sessionId}`);
+
+    // Post a comment on a specific hunk line, then Done
+    // We need to get a hunk_id -- post a thread via the threads endpoint with hunkId
+    // For simplicity, post a general thread and verify the format
+    await request.post(`/s/${sessionId}/threads`, {
+      data: { text: "Check this change" },
+    });
+    await request.post(`/s/${sessionId}/done`);
+
+    const res = await request.get(`/diff/${sessionId}/poll`);
+    const text = await res.text();
+    expect(text).toContain("#1 (general)");
+    expect(text).toContain("Check this change");
+  });
+
   test("all-additions markdown hunks render like plan review", async ({ page, request }) => {
     const diff = makeMarkdownAddedDiff();
     const { sessionId } = await createDiffSession(

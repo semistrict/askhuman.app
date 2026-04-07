@@ -211,6 +211,61 @@ test.describe("File Review", () => {
     await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
   });
 
+  test("poll markdown includes file context around line comments", async ({ request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "src/greet.ts": "line1\nline2\nline3\nline4\nline5",
+    });
+
+    await request.post(`/s/${sessionId}/threads`, {
+      data: { text: "Fix line 3", filePath: "src/greet.ts", line: 3 },
+    });
+    await request.post(`/s/${sessionId}/done`);
+
+    const res = await request.get(`/files/${sessionId}/poll`);
+    const text = await res.text();
+    expect(text).toContain("#1 (src/greet.ts:3)");
+    expect(text).toContain("> ");
+    expect(text).toContain("line3");
+    // Context lines
+    expect(text).toContain("line2");
+    expect(text).toContain("line4");
+    expect(text).toContain("Fix line 3");
+  });
+
+  test("poll markdown shows context for edge lines", async ({ request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "edge.ts": "first\nsecond",
+    });
+
+    await request.post(`/s/${sessionId}/threads`, {
+      data: { text: "Comment on first line", filePath: "edge.ts", line: 1 },
+    });
+    await request.post(`/s/${sessionId}/done`);
+
+    const res = await request.get(`/files/${sessionId}/poll`);
+    const text = await res.text();
+    expect(text).toContain("#1 (edge.ts:1)");
+    expect(text).toContain("first");
+    expect(text).toContain("second");
+    expect(text).toContain("Comment on first line");
+  });
+
+  test("poll markdown shows general comments without context", async ({ request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "src/greet.ts": "content",
+    });
+
+    await request.post(`/s/${sessionId}/threads`, {
+      data: { text: "Overall looks good" },
+    });
+    await request.post(`/s/${sessionId}/done`);
+
+    const res = await request.get(`/files/${sessionId}/poll`);
+    const text = await res.text();
+    expect(text).toContain("#1 (general)");
+    expect(text).toContain("Overall looks good");
+  });
+
   test("empty file submission is rejected", async ({ request }) => {
     const res = await request.post("/files", {
       headers: JSON_ACCEPT,

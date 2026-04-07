@@ -2,19 +2,51 @@ function escapeMarkdown(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
 }
 
-function formatThread(thread: {
-  id: number;
-  hunk_id?: string | null;
-  line?: number | null;
-  messages: { role: string; text: string }[];
-}): string {
-  const location =
-    thread.hunk_id != null && thread.line != null
+export type ContentContext = Map<string, string[]>;
+
+function getContextLines(
+  context: ContentContext | undefined,
+  thread: { file_path?: string | null; hunk_id?: string | null; line?: number | null }
+): string | null {
+  if (!context || thread.line == null) return null;
+  const key = thread.file_path ?? thread.hunk_id ?? "__plan__";
+  const lines = context.get(key);
+  if (!lines) return null;
+  const idx = thread.line - 1;
+  const result: string[] = [];
+  for (let i = idx - 1; i <= idx + 1; i++) {
+    if (i < 0 || i >= lines.length) continue;
+    const lineNum = i + 1;
+    const prefix = i === idx ? " > " : "   ";
+    result.push(`${prefix}${String(lineNum).padStart(4)}  ${lines[i]}`);
+  }
+  return result.length > 0 ? result.join("\n") : null;
+}
+
+function formatThread(
+  thread: {
+    id: number;
+    hunk_id?: string | null;
+    file_path?: string | null;
+    line?: number | null;
+    outdated?: boolean;
+    messages: { role: string; text: string }[];
+  },
+  context?: ContentContext
+): string {
+  const location = thread.file_path
+    ? `${thread.file_path}:${thread.line}`
+    : thread.hunk_id != null && thread.line != null
       ? `H${thread.hunk_id}:${thread.line}`
       : thread.line != null
         ? `L${thread.line}`
         : "general";
-  const lines = [`Thread ${thread.id} (${location})`];
+  const outdatedTag = thread.outdated ? " [outdated]" : "";
+  const lines = [`#${thread.id} (${location})${outdatedTag}`];
+  const ctx = getContextLines(context, thread);
+  if (ctx) {
+    lines.push(ctx);
+  }
   for (const message of thread.messages) {
     lines.push(`${message.role}: ${escapeMarkdown(message.text)}`);
   }
@@ -131,17 +163,20 @@ export function pollMarkdown(result: {
   threads: {
     id: number;
     hunk_id?: string | null;
+    file_path?: string | null;
     line?: number | null;
+    outdated?: boolean;
     messages: { role: string; text: string }[];
   }[];
   message?: string;
   next?: string;
+  context?: ContentContext;
 }): string {
   return [
     `# ${result.status}`,
     ...(result.message ? ["", result.message] : []),
     ...(result.threads.length
-      ? ["", "## Threads", "", ...result.threads.map(formatThread)]
+      ? ["", "## Comments", "", ...result.threads.map((t) => formatThread(t, result.context))]
       : []),
     ...(result.next ? ["", "## Next", "", result.next] : []),
   ].join("\n");

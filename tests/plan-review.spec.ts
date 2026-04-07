@@ -217,6 +217,32 @@ test.describe("Plan Review", () => {
     expect(body.threads[0].messages[0].text).toBe("Last-minute feedback");
   });
 
+  test("poll markdown includes context lines around line comments", async ({ request }) => {
+    const planRes = await request.post("/plan", {
+      data: "# Plan\nLine one.\nLine two.\nLine three.\nLine four.",
+      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+    });
+    const { sessionId: id } = await planRes.json();
+
+    await request.post(`/s/${id}/threads`, {
+      data: { line: 3, text: "Fix this line" },
+    });
+    await request.post(`/s/${id}/done`);
+
+    const res = await request.get(`/plan/${id}/poll`);
+    const text = await res.text();
+    // Should contain the comment number and location
+    expect(text).toContain("#1 (L3)");
+    // Should contain the target line with > marker
+    expect(text).toContain("> ");
+    expect(text).toContain("Line two.");
+    // Should contain surrounding context
+    expect(text).toContain("Line one.");
+    expect(text).toContain("Line three.");
+    // Should contain the comment text
+    expect(text).toContain("Fix this line");
+  });
+
   test("reopening done session shows content with buttons disabled", async ({ page, request }) => {
     const planRes = await request.post("/plan", {
       data: "# Done Plan\nReview this.",
