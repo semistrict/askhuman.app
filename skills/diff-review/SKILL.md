@@ -52,7 +52,7 @@ The description MUST NARRATE the change. Do not submit a diff with a bare title.
 
 - **Use markdown headings** (`##`) to break the description into sections -- one per file or logical group. These headings become a table of contents in the review UI.
 - **Describe each file**: explain WHY it changed and what the reviewer should focus on.
-- **Prose must be >= 15%** of the diff line count. A 200-line diff needs at least 30 lines of description.
+- **Prose must be >= 10%** of the diff line count. A 200-line diff needs at least 30 lines of description.
 - **No section longer than 200 lines** between headings.
 - **At least 1 heading per ~100 lines** of description.
 

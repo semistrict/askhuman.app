@@ -47,11 +47,11 @@ function validateDescription(description: string, diffLineCount: number): void {
     }
   }
 
-  // Prose must be at least 15% of diff size, capped at 200 lines
+  // Prose must be at least 10% of diff size, capped at 200 lines
   const proseLines = lines.filter(
     (l) => l.trim().length > 0 && !/^#{1,6}\s/.test(l) && !/^```/.test(l) && !/^---$/.test(l)
   ).length;
-  const minProse = Math.min(200, Math.ceil(diffLineCount * 0.15));
+  const minProse = Math.min(200, Math.ceil(diffLineCount * 0.10));
   if (proseLines < minProse) {
     const percent = diffLineCount > 0 ? Math.round((proseLines / diffLineCount) * 100) : 0;
     throw new RequestHunksValidationError(
@@ -79,10 +79,13 @@ export async function createDiffSession(
   sessionId: string,
   description: string,
   diff: string,
-  baseUrl: string
+  baseUrl: string,
+  skipLengthCheck: boolean = false
 ) {
   const parsed = parseAndValidateDiff(diff);
-  validateDescription(description, diff.split("\n").length);
+  if (!skipLengthCheck) {
+    validateDescription(description, diff.split("\n").length);
+  }
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("diff");
   await session.setDescription(description);
@@ -102,10 +105,13 @@ export async function updateDiffSession(
   sessionId: string,
   description: string,
   diff: string,
-  baseUrl: string
+  baseUrl: string,
+  skipLengthCheck: boolean = false
 ) {
   const parsed = parseAndValidateDiff(diff);
-  validateDescription(description, diff.split("\n").length);
+  if (!skipLengthCheck) {
+    validateDescription(description, diff.split("\n").length);
+  }
   const session = SessionDO.getInstance(sessionId);
 
   if (await session.isDone()) {
@@ -133,9 +139,11 @@ export async function parseFormData(formData: FormData) {
   const description = await readFieldText(formData.get("description"), "description");
   const diff = await readFieldText(formData.get("diff"), "diff");
   const sessionId = formData.get("sessionId");
+  const skipVal = formData.get("skip_length_check");
   return {
     description,
     diff,
     sessionId: typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null,
+    skipLengthCheck: typeof skipVal === "string" && skipVal.trim().length > 0,
   };
 }

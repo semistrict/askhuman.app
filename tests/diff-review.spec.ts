@@ -308,6 +308,6 @@ diff --git a/b.ts b/b.ts
     });
     expect(res.status()).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain("15%");
+    expect(body.error).toContain("10%");
   });
 });

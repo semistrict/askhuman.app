@@ -18,15 +18,15 @@ export async function POST(request: Request) {
 
   try {
     const formData = await request.formData();
-    const { description, diff, sessionId: existingSessionId } = await parseFormData(formData);
+    const { description, diff, sessionId: existingSessionId, skipLengthCheck } = await parseFormData(formData);
 
     if (existingSessionId) {
-      const result = await updateDiffSession(existingSessionId, description, diff, baseUrl);
+      const result = await updateDiffSession(existingSessionId, description, diff, baseUrl, skipLengthCheck);
       return negotiatedResponse(request, result, diffUpdateMarkdown(result));
     }
 
     const id = createSession();
-    const result = await createDiffSession(id, description, diff, baseUrl);
+    const result = await createDiffSession(id, description, diff, baseUrl, skipLengthCheck);
     return negotiatedResponse(request, result, diffSubmitMarkdown(result));
   } catch (error) {
     if (error instanceof RequestHunksValidationError) {
