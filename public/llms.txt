@@ -20,11 +20,17 @@ Detects curl and prints session-specific instructions.
 
 ### Diff Review
 
-- [Create diff session](https://askhuman.app/diff): POST with an empty body - returns `{ sessionId, url, message }`
-- [Request diff review](https://askhuman.app/diff/{id}/request): POST multipart form data with `description` and `diff` - updates the shown review and waits for reviewer activity in the same call
+- [Submit diff](https://askhuman.app/diff): POST multipart form data with `description` and `diff` - creates session, returns `{ sessionId, url, message }`
+- [Update diff](https://askhuman.app/diff): POST multipart with `sessionId`, `description`, and `diff` - replaces hunks, marks outdated comments, returns confirmation
+- [Poll for comments](https://askhuman.app/diff/{id}/poll): GET - long-polls up to 10 min, returns `{ status, threads }`
 - [Reply + auto-poll](https://askhuman.app/diff/{id}/reply): POST - same reply behavior as plan review.
-- [Dismiss active request](https://askhuman.app/diff/{id}/dismiss): POST - clears an abandoned active request if there are no unread human comments
-- [Complete diff review](https://askhuman.app/diff/{id}/complete): POST latest full diff body - verifies that every hunk in that diff has already been reviewed
+
+### File Review
+
+- [Submit files](https://askhuman.app/files): POST multipart where each field name is a file path and the value is the file content. Creates session, returns `{ sessionId, url, message }`.
+- [Update files](https://askhuman.app/files): POST multipart with `sessionId` plus file fields. Replaces all files; files not re-uploaded are removed. Comments on removed files are marked outdated.
+- [Poll for comments](https://askhuman.app/files/{id}/poll): GET - long-polls up to 10 min.
+- [Reply + auto-poll](https://askhuman.app/files/{id}/reply): POST - same reply behavior as plan review.
 
 ## Workflow
 
@@ -37,16 +43,25 @@ Detects curl and prints session-specific instructions.
 When poll status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
 
 ### Diff Review
-1. Create session: `POST /diff` with an empty body -> `{ sessionId, url, message }`
-2. Send `POST /diff/{id}/request` with multipart `description` + `diff`
-3. The `description` markdown may contain `patch` fences. Each fence contains literal diff text that identifies one hunk. The server expands those matched hunks in-place between your markdown sections.
-4. Open the URL for the human reviewer
-5. Re-post the same `/request` body when you want to keep waiting on that same request
-6. Reply: `POST /diff/{id}/reply` with repeated form fields `threadId` + `text`
-7. Send a fresh `/request` with the latest full diff after code changes
-8. Finish with `POST /diff/{id}/complete` using the latest full diff. It succeeds only when every hunk in that diff has been reviewed.
-When request status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
+1. Submit diff: `POST /diff` with multipart `description` + `diff` -> `{ sessionId, url, message }`
+2. Open the URL for the human reviewer
+3. Poll: `GET /diff/{id}/poll` -> blocks until comments or timeout
+4. Reply: `POST /diff/{id}/reply` with repeated form fields `threadId` + `text`
+5. After code changes, resubmit: `POST /diff` with multipart `sessionId` + `description` + `diff`
+6. Comments on changed hunks are automatically marked outdated
+7. Loop 3-5 until status is "done"
+When poll status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
+
+### File Review
+1. Submit files: `POST /files` with multipart fields (field name = file path, value = file content)
+2. Open the URL for the human reviewer
+3. Poll: `GET /files/{id}/poll` -> blocks until comments or timeout
+4. Reply: `POST /files/{id}/reply` with repeated form fields `threadId` + `text`
+5. After code changes, re-upload: `POST /files` with `sessionId` + all file fields
+6. Files not included are removed; comments on removed files are marked outdated
+7. Loop 3-5 until status is "done"
+When poll status is `"comments"`, the agent should immediately begin addressing the comments and should not wait for confirmation. It should make any requested code changes first, then reply in-thread. If no code changes are needed, it should reply immediately.
 
 ## Data Model
 
-Threads have optional `hunk_id` and `line` fields. For plan review, `line` is a markdown line number. For diff review, `hunk_id` identifies the hunk and `line` is the offset within that hunk. Null for general comments. Each thread contains messages with `role` ("human" or "agent") and `text`.
+Threads have optional `hunk_id`, `line`, and `file_path` fields. For plan review, `line` is a markdown line number. For diff review, `hunk_id` identifies the hunk, `line` is the offset within that hunk, and `file_path` is the source file. For file review, `file_path` identifies the file and `line` is the line number. Threads may be marked `outdated` when the diff is resubmitted and the hunk changes, or when a file is removed during re-upload. Null for general comments. Each thread contains messages with `role` ("human" or "agent") and `text`.

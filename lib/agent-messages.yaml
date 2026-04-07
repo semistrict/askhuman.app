@@ -26,16 +26,6 @@ plan_comments: >-
   affected threads with the command below. If a comment does not require code
   changes, reply right away.
 
-plan_request_complete: >-
-  The current review request is complete. Send the next request for this same session.
-
-plan_request_complete_hint: >-
-  The current review step is complete. After replying, continue with the next step of the review.
-
-plan_request_complete_diff_hint: >-
-  The current review request is complete. After replying, immediately move on
-  to the next hunk batch with a fresh /request for this same session.
-
 plan_timeout: >-
   No new comments yet. The human may still be reviewing. Poll again.
 
@@ -43,9 +33,14 @@ plan_done: >-
   The human has finished reviewing. No further polling needed.
 
 plan_change_pickup_diff: >-
-  If you make code changes in response to these comments, update the
-  human-visible review so the same user can see the new code. Send a fresh
-  /request for this same session with the updated hunks when you are ready.
+  If you make code changes in response to these comments, resubmit the
+  updated diff with a fresh POST to /diff so the reviewer can see the new
+  code.
+
+plan_change_pickup_files: >-
+  If you make code changes in response to these comments, re-upload all
+  files with a fresh POST to /files so the reviewer can see the updated
+  code.
 
 plan_change_pickup_generic: >-
   If you make code changes in response to these comments, make sure the same
@@ -56,84 +51,70 @@ plan_change_pickup_generic: >-
 # DIFF REVIEW -- happy path
 # =============================================================================
 
-diff_session_created: |
-  Diff session created.
+diff_created: |
+  Diff review session created.
 
-  Send each review request with the latest full diff plus a markdown
-  description that contains ```patch fences.
-  {REQUEST_CURL}
+  Poll for reviewer comments:
+    curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
+  (long-polls up to 10 min, returns immediately when comments arrive)
 
-  This /request call both updates the visible review and waits for
-  comments. After it succeeds, use /poll to keep waiting without
-  resending the multipart body.
-  Each ```patch block should contain literal diff text from the hunk.
-  It can be the full hunk or just enough of the beginning and end,
-  with ... between them, to identify the hunk uniquely.
-  You can make matching more deterministic by putting the file path
-  and hunk header on the opening line, for example:
-  ```patch foo.ts @@ -1,3 +1,4 @@
-   const x = 1;
-  ...
-  +const z = 4;
-  ```
-  {REQUEST_LIMIT}
+  Reply to comments:
+    curl -s -X POST "{BASE_URL}/diff/{SESSION_ID}/reply" \
+      -F threadId=1 -F text='your reply'
 
-  Do not submit multiple different /request calls at once. If you are
-  only waiting for comments after a successful /request, use /poll
-  instead of resending the multipart body. If you are sure the current
-  request is abandoned and there are no unread comments, dismiss it
-  first with:
-  {DISMISS_CURL}
+  After code changes, resubmit the updated diff:
+    curl -s -X POST "{BASE_URL}/diff" \
+      -F sessionId={SESSION_ID} \
+      -F description=@description.md \
+      -F diff=@current.diff
 
-  When every hunk in the latest diff has been reviewed, finish with:
-  {COMPLETE_CURL}
+  When status is "comments", immediately begin addressing the comments.
+  Do not wait for confirmation. Make any requested code changes first,
+  then reply in the affected threads.
 
-diff_comments: >-
-  New review comments arrived. Immediately begin addressing them. Do not wait
-  for confirmation. Make any requested code changes first, then reply in the
-  affected threads with: curl -s -X POST {BASE_URL}/diff/{SESSION_ID}/reply
-  {REPLY_EXAMPLE} {REQUEST_COMPLETE_HINT}{CHANGE_PICKUP}
-
-diff_request_complete_hint: >-
-  The current review request is complete. After replying, immediately prepare
-  the next /request using the latest full diff for this same session.
-
-diff_next_has_more: >-
-  The current review request is complete. Immediately prepare the next /request
-  using the latest full diff for this same session. {CHANGE_PICKUP}
-
-diff_next_all_reviewed: >-
-  All hunks in the latest submitted diff have been reviewed. Verify against
-  the latest full diff and finish with: {COMPLETE_CURL}
-
-diff_timeout: >-
-  No new comments yet. Continue waiting with /poll. {CHANGE_PICKUP}
-
-diff_timeout_immediate: >-
-  No new comments yet. Re-run the same /request call with the latest full diff
-  when you want to keep waiting. {CHANGE_PICKUP}
-
-diff_change_pickup: >-
-  If you make code changes in response to comments, update the human-visible
-  review by sending a fresh /request with the latest full diff for this same
-  session. When every hunk in the latest diff has been reviewed, finish with:
-  {COMPLETE_CURL}
-
-diff_request_limit: >-
-  Keep each /request to at most {MAX_LINES} rendered lines total. If a single
-  hunk is longer than {MAX_LINES} lines on its own, request just that one hunk.
+diff_updated: >-
+  Diff updated. Comments on changed hunks are now marked outdated.
+  Continue polling for new comments.
 
 diff_done: >-
-  The review session is already complete. No further polling needed.
+  The review session is complete. No further polling needed.
 
-diff_session_complete: >-
-  All hunks in the submitted diff were reviewed. The session is now complete.
+# =============================================================================
+# FILE REVIEW -- happy path
+# =============================================================================
 
-diff_dismissed: |
-  Request dismissed.
+file_created: |
+  File review session created with {FILE_COUNT} file(s).
 
-  You can now send the next request with:
-  {REQUEST_CURL}
+  Poll for reviewer comments:
+    curl -s "{BASE_URL}/files/{SESSION_ID}/poll"
+  (long-polls up to 10 min, returns immediately when comments arrive)
+
+  Reply to comments:
+    curl -s -X POST "{BASE_URL}/files/{SESSION_ID}/reply" \
+      -F threadId=1 -F text='your reply'
+
+  After code changes, re-upload all files:
+    curl -s -X POST "{BASE_URL}/files" \
+      -F sessionId={SESSION_ID} \
+      -F "path/to/file.ts=<path/to/file.ts"
+
+  Files not included in a re-upload are removed from the review.
+  When status is "comments", immediately begin addressing the comments.
+  Do not wait for confirmation. Make any requested code changes first,
+  then reply in the affected threads.
+
+file_updated: >-
+  Files updated ({FILE_COUNT} file(s)). Comments on removed files
+  are now marked outdated. Continue polling for new comments.
+
+file_already_done: >-
+  This review session is already complete. Create a new file review
+  session instead.
+
+file_no_files: >-
+  No files provided. Include at least one file as a form field where the
+  field name is the file path and the value is the file content.
 
 # =============================================================================
 # CONNECTION / PRESENCE -- shared across plan and diff
@@ -149,65 +130,13 @@ plan_no_human: >-
   seconds. Ask the same user you are already interacting with to open this URL
   again: {URL} or use open "{URL}", xdg-open "{URL}", or similar.
 
-diff_not_connected: >-
-  The same user you are already interacting with has not connected yet. Ask
-  that user to open this URL: {URL} or use open "{URL}", xdg-open "{URL}",
-  or similar. The visible diff request has already been updated. After that
-  user opens the URL, continue waiting with /poll.
-
-diff_no_human: >-
-  No human reviewer tabs have been connected to this session for at least 5
-  seconds. Ask the same user you are already interacting with to open this URL
-  again: {URL} or use open "{URL}", xdg-open "{URL}", or similar. The visible
-  diff request has already been updated. After that user opens the URL again,
-  continue waiting with /poll.
-
 # =============================================================================
 # ERRORS -- diff lifecycle
 # =============================================================================
 
-diff_already_complete: >-
+diff_already_done: >-
   This review session is already complete. Create a new diff review session
-  instead of sending another /request.
-
-diff_complete_while_active: >-
-  Cannot complete the review while a request is still active. Wait for the
-  same user to finish the current request first.
-
-diff_complete_missing_hunks: >-
-  Cannot complete the review yet. {COUNT} hunk(s) in the latest submitted diff
-  have not been reviewed.
-
-diff_request_blocked_unread: >-
-  A different diff review request is already active for this session and there
-  are unread human comments. Reply to the comments first, then re-send the
-  /request with the updated diff. Or if you are sure the current request is
-  abandoned, dismiss it with: {DISMISS_CURL}
-
-diff_request_rejected_too_many_lines: >-
-  Request rejected {HUNK_COUNT} hunks totaling {TOTAL_LINES} lines.
-  {REQUEST_LIMIT} Split this into smaller batches.
-
-diff_dismiss_no_request: >-
-  There is no active diff review request to dismiss.
-
-diff_dismiss_unread: >-
-  Cannot dismiss the current request because there are unread human comments.
-  Reply to them first. After replying, you can send a fresh /request with the
-  updated diff directly -- no dismiss needed.
-
-diff_churn_rejected: |
-  Request rejected because {DIFFERENT_COUNT} of {BASELINE_COUNT} hunks
-  changed since the last submitted diff, which is more than 50%.
-  This safety check is meant to catch cases where the agent may have
-  changed the code substantially without intentionally refreshing the
-  review flow.
-  If you really do want to replace the review snapshot with this much
-  change, re-run the same request with:
-  curl -s -X POST "{BASE_URL}/diff/{SESSION_ID}/request" \
-    -F description=@description.md \
-    -F diff=@current.diff \
-    -F allow_many_changes=true
+  instead.
 
 # =============================================================================
 # ERRORS -- patch matching
@@ -220,36 +149,9 @@ match_no_hunks: >-
   Diff body did not contain any parseable hunks. Submit a unified git diff
   with at least one hunk.
 
-match_empty_patch: >-
-  Empty ```patch``` block. Each patch fence must contain enough literal hunk
-  text to match exactly one hunk, or specify the file path and hunk header on
-  the opening ```patch line.
-
-match_no_match_with_headers: >-
-  A ```patch``` block did not match any hunk in the submitted diff. Do not
-  include diff --git, index, ---, or +++ lines inside a patch block. Start at
-  the hunk header, or put the file path and hunk header on the opening
-  ```patch line.
-
-match_no_match_generic: >-
-  A ```patch``` block did not match any hunk in the submitted diff. Include
-  more of the hunk text so the match is deterministic, or add the file path
-  and hunk header on the opening ```patch line.
-
-match_ambiguous: >-
-  A ```patch``` block matched {COUNT} hunks in the submitted diff. Include
-  more of the beginning and/or end of the hunk until exactly one hunk matches.
-
-match_no_patch_blocks: >-
-  Request description must include at least one ```patch``` block.
-
 # =============================================================================
 # ERRORS -- route-level (wrong method / bad input)
 # =============================================================================
-
-route_diff_nonempty_body: >-
-  POST /diff with an empty body to create a diff session. Then send the full
-  current diff to /diff/{sessionId}/request as multipart form data.
 
 route_diff_get: >-
   POST a diff body to create a diff review session
@@ -257,20 +159,17 @@ route_diff_get: >-
 route_plan_get: >-
   POST a markdown body to create a plan review session
 
-route_diff_request_get: >-
-  Use POST /diff/{ID}/request with multipart form data. This /request call
-  updates the visible review and waits once. After that, use GET
-  /diff/{ID}/poll to keep waiting for comments without resending the multipart
-  body.
-
 route_diff_reply_get: >-
   POST replies to this endpoint
 
 route_plan_reply_get: >-
   POST replies to this endpoint
 
-route_diff_complete_get: >-
-  POST the latest full diff body to complete the review.
+route_files_get: >-
+  POST files to create a file review session
+
+route_files_reply_get: >-
+  POST replies to this endpoint
 
 # =============================================================================
 # ERRORS -- form field validation

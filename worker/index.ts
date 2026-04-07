@@ -25,9 +25,17 @@ Use this with the same user you are already interacting with. After you submit, 
 
 2. Or submit a diff for review:
 
-  curl -s -X POST ${base}/diff
+  curl -s -X POST ${base}/diff \\
+    -F description=@description.md \\
+    -F diff=@current.diff
 
-Response includes sessionId, review URL, and ready-to-run commands for sending /request payloads with the latest full diff.
+3. Or submit files for review:
+
+  curl -s -X POST ${base}/files \\
+    -F "src/main.ts=<src/main.ts" \\
+    -F "src/utils.ts=<src/utils.ts"
+
+Response includes sessionId, review URL, and instructions for polling and replying.
 `;
 
   return new Response(text.endsWith("\n") ? text : `${text}\n`, {
@@ -125,12 +133,14 @@ function handleRootHtml(): Response {
   </div>
   <p class="note">Auto-creates a session and prints everything your agent needs.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/diff')">
-    <div class="label">Start a diff review session</div>
-    <pre>curl -s -X POST https://askhuman.app/diff</pre>
+  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/diff -F description=@description.md -F diff=@current.diff')">
+    <div class="label">Submit a diff for review</div>
+    <pre>curl -s -X POST https://askhuman.app/diff \
+  -F description=@description.md \
+  -F diff=@current.diff</pre>
     <span class="copy">copied</span>
   </div>
-  <p class="note">Creates an empty session, then tells your agent how to send the latest full diff with each request.</p>
+  <p class="note">Submits the full diff and description, returns session URL and polling instructions.</p>
 
   <div class="cmd" onclick="copyCmd(this, 'curl -s --data-binary @plan.md https://askhuman.app/plan')">
     <div class="label">Submit a plan for review</div>

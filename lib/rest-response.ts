@@ -80,52 +80,54 @@ export function diffSubmitMarkdown(result: {
     "",
     `sessionId: ${result.sessionId}`,
     `url: ${result.url}`,
-    ...(result.message ? ["", "## Next Step", "", result.message] : []),
+    ...(result.message ? ["", "## Next Steps", "", result.message] : []),
   ].join("\n");
 }
 
-export function requestMarkdown(result: {
+export function diffUpdateMarkdown(result: {
   sessionId: string;
   url: string;
-  status: "comments" | "timeout" | "done" | "error" | "next";
-  threads: {
-    id: number;
-    hunk_id?: string | null;
-    line?: number | null;
-    messages: { role: string; text: string }[];
-  }[];
   message?: string;
-  next?: string;
 }): string {
   return [
-    "# Diff Request",
+    "# Diff Updated",
     "",
     `sessionId: ${result.sessionId}`,
     `url: ${result.url}`,
-    "",
-    pollMarkdown({
-      status: result.status,
-      threads: result.threads,
-      message: result.message,
-      next: result.next,
-    }),
+    ...(result.message ? ["", result.message] : []),
   ].join("\n");
 }
 
-export function actionMarkdown(title: string, result: {
+export function fileSubmitMarkdown(result: {
   sessionId: string;
+  url: string;
   message?: string;
 }): string {
   return [
-    `# ${title}`,
+    "# File Review Session",
     "",
     `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    ...(result.message ? ["", "## Next Steps", "", result.message] : []),
+  ].join("\n");
+}
+
+export function fileUpdateMarkdown(result: {
+  sessionId: string;
+  url: string;
+  message?: string;
+}): string {
+  return [
+    "# Files Updated",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
     ...(result.message ? ["", result.message] : []),
   ].join("\n");
 }
 
 export function pollMarkdown(result: {
-  status: "comments" | "timeout" | "done" | "error" | "next";
+  status: "comments" | "timeout" | "done" | "error";
   threads: {
     id: number;
     hunk_id?: string | null;
@@ -147,7 +149,7 @@ export function pollMarkdown(result: {
 
 export function replyMarkdown(result: {
   sent: { thread_id: number; role: string; text: string }[];
-  status: "comments" | "timeout" | "done" | "error" | "next";
+  status: "comments" | "timeout" | "done" | "error";
   threads: {
     id: number;
     hunk_id?: string | null;

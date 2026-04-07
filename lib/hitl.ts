@@ -6,13 +6,14 @@ export type { Thread, Message };
 export const REST_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 export const HUMAN_CONNECT_TIMEOUT_MS = 5 * 1000;
 
-type PollStatus = "comments" | "timeout" | "done" | "error" | "next";
+type PollStatus = "comments" | "timeout" | "done" | "error";
 type AgentConnectionKind =
   | "plan_poll"
   | "plan_reply"
   | "diff_reply"
-  | "diff_request"
-  | "diff_poll";
+  | "diff_poll"
+  | "file_poll"
+  | "file_reply";
 
 function reviewUrl(baseUrl: string, sessionId: string): string {
   return `${baseUrl}/s/${sessionId}`;
@@ -49,9 +50,9 @@ function formatReplyCurl(
 }
 
 function changePickupReminder(prefix: string, _baseUrl: string, _sessionId: string): string {
-  return prefix === "diff"
-    ? msg("plan_change_pickup_diff")
-    : msg("plan_change_pickup_generic");
+  if (prefix === "diff") return msg("plan_change_pickup_diff");
+  if (prefix === "files") return msg("plan_change_pickup_files");
+  return msg("plan_change_pickup_generic");
 }
 
 function appendMessage(message: string | undefined, extra: string): string {
@@ -91,7 +92,7 @@ function disconnectedResponse(
 }
 
 export function formatPollResponse(
-  result: { threads: Thread[]; done?: boolean; requestComplete?: boolean; noHuman?: boolean },
+  result: { threads: Thread[]; done?: boolean; noHuman?: boolean },
   sessionId: string,
   baseUrl: string,
   prefix: string = "plan"
@@ -108,14 +109,6 @@ export function formatPollResponse(
   }
 
   if (result.threads.length === 0) {
-    if (result.requestComplete) {
-      return {
-        status: "next" as PollStatus,
-        threads: [] as Thread[],
-        message: msg("plan_request_complete"),
-      };
-    }
-
     return {
       status: "timeout" as PollStatus,
       threads: [] as Thread[],
@@ -129,19 +122,12 @@ export function formatPollResponse(
     text: "<your reply>",
   }));
 
-  const requestCompleteHint = result.requestComplete
-    ? prefix === "diff"
-      ? msg("plan_request_complete_diff_hint")
-      : msg("plan_request_complete_hint")
-    : "";
-
   return {
     status: "comments" as PollStatus,
     threads: result.threads,
     message:
       [
         msg("plan_comments"),
-        requestCompleteHint,
         changePickupReminder(prefix, baseUrl, sessionId),
       ].filter(Boolean).join(" "),
     next: formatReplyCurl(baseUrl, sessionId, prefix, replyExample),
@@ -156,7 +142,7 @@ async function waitForPollResult(
 ) {
   const session = SessionDO.getInstance(sessionId);
   const immediate = await session.consumeAgentUpdate();
-  if (immediate.done || immediate.requestComplete || immediate.threads.length > 0) {
+  if (immediate.done || immediate.threads.length > 0) {
     return formatPollResponse(immediate, sessionId, baseUrl, prefix);
   }
   if (!(await session.hasHumanConnected())) {

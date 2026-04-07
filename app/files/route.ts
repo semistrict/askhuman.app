@@ -1,14 +1,14 @@
 import { createSession } from "@/lib/plan-review";
 import {
-  createDiffSession,
-  updateDiffSession,
-  parseFormData,
-  RequestHunksValidationError,
-} from "@/lib/diff-review";
+  createFileSession,
+  updateFileSession,
+  parseFileFormData,
+  FileReviewError,
+} from "@/lib/file-review";
 import { msg } from "@/lib/agent-messages";
 import {
-  diffSubmitMarkdown,
-  diffUpdateMarkdown,
+  fileSubmitMarkdown,
+  fileUpdateMarkdown,
   errorMarkdown,
   negotiatedResponse,
 } from "@/lib/rest-response";
@@ -18,18 +18,18 @@ export async function POST(request: Request) {
 
   try {
     const formData = await request.formData();
-    const { description, diff, sessionId: existingSessionId } = await parseFormData(formData);
+    const { files, sessionId: existingSessionId } = parseFileFormData(formData);
 
     if (existingSessionId) {
-      const result = await updateDiffSession(existingSessionId, description, diff, baseUrl);
-      return negotiatedResponse(request, result, diffUpdateMarkdown(result));
+      const result = await updateFileSession(existingSessionId, files, baseUrl);
+      return negotiatedResponse(request, result, fileUpdateMarkdown(result));
     }
 
     const id = createSession();
-    const result = await createDiffSession(id, description, diff, baseUrl);
-    return negotiatedResponse(request, result, diffSubmitMarkdown(result));
+    const result = await createFileSession(id, files, baseUrl);
+    return negotiatedResponse(request, result, fileSubmitMarkdown(result));
   } catch (error) {
-    if (error instanceof RequestHunksValidationError) {
+    if (error instanceof FileReviewError) {
       const payload = { error: error.message };
       return negotiatedResponse(
         request,
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const error = { error: msg("route_diff_get") };
+  const error = { error: msg("route_files_get") };
   return negotiatedResponse(
     request,
     error,

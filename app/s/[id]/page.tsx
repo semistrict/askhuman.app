@@ -1,7 +1,8 @@
 import { SessionDO } from "@/worker/session";
-import type { Thread, ViewSection } from "@/worker/session";
+import type { Thread } from "@/worker/session";
 import { ReviewClient } from "./review-client";
 import { DiffReviewClient } from "./diff-review-client";
+import { FileReviewClient } from "./file-review-client";
 
 export default async function SessionPage({
   params,
@@ -13,20 +14,29 @@ export default async function SessionPage({
   const contentType = await session.getContentType();
 
   if (contentType === "diff") {
+    const description = await session.getDescription();
+    const hunks = await session.getAllHunks();
     const threads: Thread[] = await session.getThreads();
-    const hasActiveRequest = await session.hasActiveReviewRequest();
-    const view = hasActiveRequest ? await session.getView() : null;
-    const hunks = view ? await session.getHunksByIds(view.hunkIds) : [];
-    const doneLabel = (await session.hasMoreUnreviewedHunksAfterCurrentView())
-      ? "Next"
-      : "Done";
+    const isDone = await session.isDone();
     return (
       <DiffReviewClient
         sessionId={id}
+        description={description}
         hunks={hunks}
-        sections={(view?.sections ?? []) as ViewSection[]}
         initialThreads={threads}
-        doneLabel={doneLabel}
+        isDone={isDone}
+      />
+    );
+  }
+
+  if (contentType === "files") {
+    const files = await session.getAllFiles();
+    const threads: Thread[] = await session.getThreads();
+    return (
+      <FileReviewClient
+        sessionId={id}
+        files={files}
+        initialThreads={threads}
       />
     );
   }

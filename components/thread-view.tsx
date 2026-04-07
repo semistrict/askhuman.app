@@ -14,6 +14,7 @@ export function ThreadView({
   onReply,
   flashedMessages,
   className,
+  outdated,
 }: {
   thread: Thread;
   expanded: boolean;
@@ -23,12 +24,13 @@ export function ThreadView({
   onReply: () => void;
   flashedMessages: Set<number>;
   className?: string;
+  outdated?: boolean;
 }) {
   const firstMessage = thread.messages[0];
   const replyCount = thread.messages.length - 1;
 
   return (
-    <div className={`border-t border-border bg-muted/10 ${className ?? ""}`}>
+    <div className={`border-t border-border bg-muted/10 ${outdated ? "opacity-60" : ""} ${className ?? ""}`}>
       {/* Thread header -- first message */}
       <button
         className="w-full text-left px-4 py-2 hover:bg-muted/20 transition-colors"
@@ -41,6 +43,11 @@ export function ThreadView({
           >
             {firstMessage.role}
           </Badge>
+          {outdated && (
+            <Badge variant="outline" className="text-[10px] shrink-0 mt-0.5 text-muted-foreground">
+              outdated
+            </Badge>
+          )}
           <p className="text-sm font-sans flex-1 line-clamp-2">
             {firstMessage.text}
           </p>

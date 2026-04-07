@@ -6,7 +6,17 @@ export async function POST(
 ) {
   const { id } = await params;
   const session = SessionDO.getInstance(id);
-  const { hunkId, line, text } = (await request.json()) as { hunkId?: string; line?: number; text: string };
-  const thread = await session.createThread(line ?? null, text, hunkId ?? null);
+  const { hunkId, line, text, filePath } = (await request.json()) as {
+    hunkId?: string;
+    line?: number;
+    text: string;
+    filePath?: string;
+  };
+  const thread = await session.createThread(
+    line ?? null,
+    text,
+    hunkId ?? null,
+    filePath ?? null
+  );
   return Response.json(thread);
 }
