@@ -129,7 +129,7 @@ function handleRootHtml(): Response {
   <div class="cmd" onclick="copyCmd(this, 'curl -s https://askhuman.app')">
     <div class="label">Any agent (zero install)</div>
     <pre>curl -s https://askhuman.app</pre>
-    <span class="copy">copied</span>
+    <span class="copy">copy</span>
   </div>
   <p class="note">Auto-creates a session and prints everything your agent needs.</p>
 
@@ -138,14 +138,14 @@ function handleRootHtml(): Response {
     <pre>curl -s -X POST https://askhuman.app/diff \
   -F description=@description.md \
   -F diff=@current.diff</pre>
-    <span class="copy">copied</span>
+    <span class="copy">copy</span>
   </div>
   <p class="note">Submits the full diff and description, returns session URL and polling instructions.</p>
 
   <div class="cmd" onclick="copyCmd(this, 'curl -s --data-binary @plan.md https://askhuman.app/plan')">
     <div class="label">Submit a plan for review</div>
     <pre>curl -s --data-binary @plan.md https://askhuman.app/plan</pre>
-    <span class="copy">copied</span>
+    <span class="copy">copy</span>
   </div>
   <p class="note">Use it with the same user you are already interacting with. Posts markdown and returns session-specific curl commands.</p>
 
@@ -157,8 +157,10 @@ function handleRootHtml(): Response {
 <script>
 function copyCmd(el, text) {
   navigator.clipboard.writeText(text.replace(/\\\\n/g, '\\n'));
+  var span = el.querySelector('.copy');
+  span.textContent = 'copied';
   el.classList.add('copied');
-  setTimeout(() => el.classList.remove('copied'), 1500);
+  setTimeout(() => { el.classList.remove('copied'); span.textContent = 'copy'; }, 1500);
 }
 </script>
 </body>
