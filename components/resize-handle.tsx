@@ -2,7 +2,10 @@
 
 import { useCallback, useRef, useEffect, useState } from "react";
 
-export function usePersistedWidth(key: string, defaultWidth: number): [number, (w: number) => void] {
+export function usePersistedWidth(
+  key: string,
+  defaultWidth: number
+): [number, (updater: number | ((prev: number) => number)) => void] {
   const [width, setWidth] = useState(defaultWidth);
 
   useEffect(() => {
@@ -16,9 +19,12 @@ export function usePersistedWidth(key: string, defaultWidth: number): [number, (
   }, [key]);
 
   const setAndPersist = useCallback(
-    (w: number) => {
-      setWidth(w);
-      localStorage.setItem(key, String(w));
+    (updater: number | ((prev: number) => number)) => {
+      setWidth((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        localStorage.setItem(key, String(next));
+        return next;
+      });
     },
     [key]
   );
@@ -28,13 +34,17 @@ export function usePersistedWidth(key: string, defaultWidth: number): [number, (
 
 export function ResizeHandle({
   side,
-  onResize,
+  onDrag,
+  minWidth = 100,
 }: {
   side: "left" | "right";
-  onResize: (delta: number) => void;
+  onDrag: (setter: (prev: number) => number) => void;
+  minWidth?: number;
 }) {
   const dragging = useRef(false);
   const lastX = useRef(0);
+  const onDragRef = useRef(onDrag);
+  onDragRef.current = onDrag;
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -46,9 +56,8 @@ export function ResizeHandle({
         if (!dragging.current) return;
         const delta = ev.clientX - lastX.current;
         lastX.current = ev.clientX;
-        // For a left-side panel, dragging right increases width
-        // For a right-side panel, dragging left increases width
-        onResize(side === "left" ? delta : -delta);
+        const signedDelta = side === "left" ? delta : -delta;
+        onDragRef.current((prev) => Math.max(minWidth, prev + signedDelta));
       };
 
       const onMouseUp = () => {
@@ -64,7 +73,7 @@ export function ResizeHandle({
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     },
-    [onResize, side]
+    [side, minWidth]
   );
 
   return (

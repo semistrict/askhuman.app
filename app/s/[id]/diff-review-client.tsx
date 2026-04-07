@@ -469,7 +469,7 @@ export function DiffReviewClient({
           </section>
         </main>
 
-        <ResizeHandle side="right" onResize={(d) => setCommentsWidth(Math.max(200, commentsWidth + d))} />
+        <ResizeHandle side="right" onDrag={setCommentsWidth} minWidth={200} />
 
         <aside className="shrink-0 border-l border-border" style={{ width: commentsWidth }}>
           <CommentPanel

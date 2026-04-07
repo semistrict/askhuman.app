@@ -338,7 +338,7 @@ export function FileReviewClient({
           </div>
         </aside>
 
-        <ResizeHandle side="left" onResize={(d) => setFileListWidth(Math.max(120, fileListWidth + d))} />
+        <ResizeHandle side="left" onDrag={setFileListWidth} minWidth={120} />
 
         {/* File content */}
         <main className="flex-1 overflow-y-auto">
@@ -431,7 +431,7 @@ export function FileReviewClient({
           )}
         </main>
 
-        <ResizeHandle side="right" onResize={(d) => setCommentsWidth(Math.max(200, commentsWidth + d))} />
+        <ResizeHandle side="right" onDrag={setCommentsWidth} minWidth={200} />
 
         {/* Comments panel */}
         <aside className="shrink-0 border-l border-border flex flex-col" style={{ width: commentsWidth }}>
