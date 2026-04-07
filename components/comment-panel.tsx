@@ -9,11 +9,14 @@ import { ThreadView } from "@/components/thread-view";
 interface CommentPanelProps {
   threads: Thread[];
   sessionId: string;
-  onScrollToLine: (line: number) => void;
+  onScrollToLine: (target: string | number) => void;
   newCommentText: string;
   onNewCommentTextChange: (text: string) => void;
-  onCreateGeneralComment: (text: string) => void;
-  onDone: () => void;
+  onCreateGeneralComment: (text: string) => void | Promise<void>;
+  onDone: () => void | Promise<void>;
+  doneLabel?: string;
+  donePending?: boolean;
+  doneNotice?: string | null;
   replyTexts: Record<number, string>;
   onReplyTextChange: (threadId: number, text: string) => void;
   onReply: (threadId: number) => void;
@@ -30,6 +33,9 @@ export function CommentPanel({
   onNewCommentTextChange,
   onCreateGeneralComment,
   onDone,
+  doneLabel = "Done",
+  donePending = false,
+  doneNotice = null,
   replyTexts,
   onReplyTextChange,
   onReply,
@@ -50,6 +56,7 @@ export function CommentPanel({
           onChange={(e) => onNewCommentTextChange(e.target.value)}
           placeholder="General comment..."
           className="mb-2 bg-background text-sm min-h-[60px]"
+          disabled={donePending}
         />
         <div className="flex gap-2">
           <Button
@@ -57,7 +64,7 @@ export function CommentPanel({
             variant="outline"
             className="flex-1"
             onClick={() => onCreateGeneralComment(newCommentText)}
-            disabled={!newCommentText.trim()}
+            disabled={donePending || !newCommentText.trim()}
           >
             Comment
           </Button>
@@ -66,14 +73,23 @@ export function CommentPanel({
             className="flex-1"
             onClick={async () => {
               if (newCommentText.trim()) {
-                onCreateGeneralComment(newCommentText);
+                await onCreateGeneralComment(newCommentText);
               }
-              onDone();
+              await onDone();
             }}
+            disabled={donePending}
           >
-            {newCommentText.trim() ? "Reply & Done" : "Done"}
+            {donePending ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                {doneLabel}
+              </span>
+            ) : newCommentText.trim() ? `Reply & ${doneLabel}` : doneLabel}
           </Button>
         </div>
+        {doneNotice ? (
+          <p className="mt-2 text-xs text-muted-foreground">{doneNotice}</p>
+        ) : null}
       </div>
 
       {/* Thread timeline */}

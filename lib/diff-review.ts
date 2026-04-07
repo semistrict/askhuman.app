@@ -1,182 +1,417 @@
-import { SessionDO } from "@/worker/session";
+import { createHash } from "node:crypto";
+import { HUMAN_CONNECT_TIMEOUT_MS, REST_POLL_TIMEOUT_MS } from "@/lib/hitl";
+import {
+  countRenderedHunkLines,
+  createStableHunkId,
+  prepareDiffReviewRequest,
+  parseAndValidateDiff,
+  RequestHunksValidationError,
+  type MatchableHunk,
+  type ParsedHunk,
+} from "@/lib/diff-matching";
+import { msg } from "@/lib/agent-messages";
+import { SessionDO, type Thread } from "@/worker/session";
+
+export { RequestHunksValidationError } from "@/lib/diff-matching";
 
 const MAX_VIEW_LINES = 200;
 
-export class ShowHunksValidationError extends Error {
-  readonly status = 400;
+type PollStatus = "comments" | "timeout" | "done" | "error" | "next";
 
-  constructor(message: string) {
-    super(message);
-    this.name = "ShowHunksValidationError";
-  }
-}
-
-export interface ParsedHunk {
-  filePath: string;
-  oldStart: number;
-  oldCount: number;
-  newStart: number;
-  newCount: number;
-  header: string;
-  content: string;
-}
-
-export function parseDiffToHunks(diff: string): ParsedHunk[] {
-  const lines = diff.split("\n");
-  const hunks: ParsedHunk[] = [];
-  let currentFile = "";
-  let currentHunkLines: string[] = [];
-  let currentHeader = "";
-  let oldStart = 0;
-  let oldCount = 0;
-  let newStart = 0;
-  let newCount = 0;
-
-  function flushHunk() {
-    if (currentHeader && currentHunkLines.length > 0) {
-      hunks.push({
-        filePath: currentFile,
-        oldStart,
-        oldCount,
-        newStart,
-        newCount,
-        header: currentHeader,
-        content: currentHunkLines.join("\n"),
-      });
-    }
-    currentHunkLines = [];
-    currentHeader = "";
-  }
-
-  for (const line of lines) {
-    if (line.startsWith("diff --git") || line.startsWith("diff --combined")) {
-      flushHunk();
-      const match = line.match(/diff --git a\/(.+) b\/(.+)/);
-      currentFile = match ? match[2] : "";
-      continue;
-    }
-
-    if (
-      line.startsWith("index ") ||
-      line.startsWith("--- ") ||
-      line.startsWith("+++ ") ||
-      line.startsWith("old mode") ||
-      line.startsWith("new mode") ||
-      line.startsWith("new file mode") ||
-      line.startsWith("deleted file mode") ||
-      line.startsWith("similarity index") ||
-      line.startsWith("rename from") ||
-      line.startsWith("rename to") ||
-      line.startsWith("Binary files")
-    ) {
-      continue;
-    }
-
-    const hunkMatch = line.match(
-      /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)/
-    );
-    if (hunkMatch) {
-      flushHunk();
-      oldStart = parseInt(hunkMatch[1]);
-      oldCount = parseInt(hunkMatch[2] ?? "1");
-      newStart = parseInt(hunkMatch[3]);
-      newCount = parseInt(hunkMatch[4] ?? "1");
-      currentHeader = line;
-      continue;
-    }
-
-    if (currentHeader) {
-      if (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ") || line === "\\ No newline at end of file") {
-        currentHunkLines.push(line);
-      }
-    }
-  }
-
-  flushHunk();
-  return hunks;
-}
-
-function countRenderedHunkLines(content: string): number {
-  if (!content) return 0;
-  return content
-    .split("\n")
-    .filter((line) => line !== "\\ No newline at end of file").length;
-}
-
-function showHunksCurl(baseUrl: string, sessionId: string): string {
+function requestCurl(baseUrl: string, sessionId: string): string {
   return [
-    `curl -X POST "${baseUrl}/diff/${sessionId}/view" \\`,
-    "  -H 'Content-Type: application/json' \\",
-    "  -H 'Accept: application/json' \\",
-    `  --data-binary '{"hunkIds":[<id>],"description":"Explain these changes."}'`,
+    `curl -s -X POST "${baseUrl}/diff/${sessionId}/request" \\`,
+    `  -F description=@description.md \\`,
+    `  -F diff=@current.diff`,
   ].join("\n");
 }
 
-export async function submitDiff(
+function pollCurl(baseUrl: string, sessionId: string): string {
+  return `curl -s "${baseUrl}/diff/${sessionId}/poll"`;
+}
+
+function completeCurl(baseUrl: string, sessionId: string): string {
+  return `curl -s -X POST --data-binary @- "${baseUrl}/diff/${sessionId}/complete"`;
+}
+
+function dismissRequestCurl(baseUrl: string, sessionId: string): string {
+  return `curl -s -X POST "${baseUrl}/diff/${sessionId}/dismiss"`;
+}
+
+function requestLimitGuidance(): string {
+  return msg("diff_request_limit", { MAX_LINES: MAX_VIEW_LINES });
+}
+
+function changePickupReminder(baseUrl: string, sessionId: string): string {
+  return msg("diff_change_pickup", { COMPLETE_CURL: completeCurl(baseUrl, sessionId) });
+}
+
+function createRequestFingerprint(diff: string, description: string): string {
+  return createHash("md5")
+    .update(diff)
+    .update("\n---\n")
+    .update(description)
+    .digest("base64url");
+}
+
+function isTruthyFormValue(value: string | null): boolean {
+  if (!value) return false;
+  return /^(1|true|yes|on)$/i.test(value.trim());
+}
+
+function countDifferentHunks(previousIds: Set<string>, nextIds: Set<string>): number {
+  let different = 0;
+  for (const id of previousIds) {
+    if (!nextIds.has(id)) different += 1;
+  }
+  for (const id of nextIds) {
+    if (!previousIds.has(id)) different += 1;
+  }
+  return different;
+}
+
+async function assertManyChangesAllowed(
+  session: DurableObjectStub<SessionDO>,
+  nextHunks: MatchableHunk[],
+  allowManyChanges: boolean,
+  baseUrl: string,
+  sessionId: string
+) {
+  const previousMeta = await session.getHunkMeta();
+  if (previousMeta.length === 0) return;
+
+  const previousIds = new Set(previousMeta.map((hunk) => hunk.id));
+  const nextIds = new Set(nextHunks.map((hunk) => hunk.id));
+  const differentCount = countDifferentHunks(previousIds, nextIds);
+  const baselineCount = Math.max(previousIds.size, nextIds.size);
+
+  if (
+    differentCount > 4 &&
+    baselineCount > 0 &&
+    differentCount / baselineCount > 0.5 &&
+    !allowManyChanges
+  ) {
+    throw new RequestHunksValidationError(
+      msg("diff_churn_rejected", {
+        DIFFERENT_COUNT: differentCount,
+        BASELINE_COUNT: baselineCount,
+        BASE_URL: baseUrl,
+        SESSION_ID: sessionId,
+      }),
+      409
+    );
+  }
+}
+
+async function readFieldText(
+  value: FormDataEntryValue | null,
+  field: string
+): Promise<string> {
+  if (!value) {
+    throw new RequestHunksValidationError(msg("form_missing_field", { FIELD: field }));
+  }
+  if (typeof value === "string") return value;
+  return value.text();
+}
+
+function diffReplyExample(threads: Thread[]): string {
+  return threads
+    .map((thread) => `-F threadId=${thread.id} -F text='<your reply>'`)
+    .join(" ");
+}
+
+function diffCommentsMessage(
+  baseUrl: string,
+  sessionId: string,
+  threads: Thread[],
+  requestComplete?: boolean
+): string {
+  return msg("diff_comments", {
+    BASE_URL: baseUrl,
+    SESSION_ID: sessionId,
+    REPLY_EXAMPLE: diffReplyExample(threads),
+    REQUEST_COMPLETE_HINT: requestComplete ? msg("diff_request_complete_hint") : "",
+    CHANGE_PICKUP: changePickupReminder(baseUrl, sessionId),
+  });
+}
+
+async function diffNextMessage(
+  session: DurableObjectStub<SessionDO>,
+  baseUrl: string,
+  sessionId: string
+): Promise<string> {
+  const hasMore = await session.hasAnyUnreviewedHunks();
+  return hasMore
+    ? msg("diff_next_has_more", { CHANGE_PICKUP: changePickupReminder(baseUrl, sessionId) })
+    : msg("diff_next_all_reviewed", { COMPLETE_CURL: completeCurl(baseUrl, sessionId) });
+}
+
+async function waitForDiffReviewProgress(
+  sessionId: string,
+  baseUrl: string
+): Promise<{
+  status: PollStatus;
+  threads: Thread[];
+  message: string;
+  url?: string;
+  next?: string;
+}> {
+  const session = SessionDO.getInstance(sessionId);
+  const url = `${baseUrl}/s/${sessionId}`;
+  const immediate = await session.consumeAgentUpdate();
+  if (immediate.done || immediate.requestComplete || immediate.threads.length > 0) {
+    const result = immediate;
+    if (result.done) {
+      return { status: "done", threads: result.threads, message: msg("diff_done") };
+    }
+
+    if (result.threads.length > 0) {
+      return {
+        status: "comments",
+        threads: result.threads,
+        message: diffCommentsMessage(baseUrl, sessionId, result.threads, result.requestComplete),
+      };
+    }
+
+    return {
+      status: "next",
+      threads: [],
+      message: await diffNextMessage(session, baseUrl, sessionId),
+    };
+  }
+
+  if (!(await session.hasHumanConnected())) {
+    const { connected } = await session.waitForHumanConnection(HUMAN_CONNECT_TIMEOUT_MS);
+    if (!connected) {
+      return {
+        status: "error",
+        threads: [],
+        url,
+        message: msg("diff_not_connected", { URL: url }),
+        next: pollCurl(baseUrl, sessionId),
+      };
+    }
+  }
+
+  const result = await session.waitForComments(REST_POLL_TIMEOUT_MS);
+
+  if (result.noHuman) {
+    return {
+      status: "error",
+      threads: [],
+      url,
+      message: msg("diff_no_human", { URL: url }),
+      next: pollCurl(baseUrl, sessionId),
+    };
+  }
+
+  if (result.done) {
+    return { status: "done", threads: result.threads, message: msg("diff_done") };
+  }
+
+  if (result.threads.length > 0) {
+    return {
+      status: "comments",
+      threads: result.threads,
+      message: diffCommentsMessage(baseUrl, sessionId, result.threads, result.requestComplete),
+    };
+  }
+
+  if (result.requestComplete) {
+    return {
+      status: "next",
+      threads: [],
+      message: await diffNextMessage(session, baseUrl, sessionId),
+    };
+  }
+
+  return {
+    status: "timeout",
+    threads: [],
+    message: msg("diff_timeout", { CHANGE_PICKUP: changePickupReminder(baseUrl, sessionId) }),
+    next: pollCurl(baseUrl, sessionId),
+  };
+}
+
+export async function getImmediateDiffAgentResponse(
+  sessionId: string,
+  baseUrl: string
+): Promise<{
+  sessionId: string;
+  url: string;
+  status: PollStatus;
+  threads: Thread[];
+  message: string;
+}> {
+  const session = SessionDO.getInstance(sessionId);
+  const result = await session.peekAgentUpdate();
+  const url = `${baseUrl}/s/${sessionId}`;
+
+  if (result.done) {
+    return { sessionId, url, status: "done", threads: result.threads, message: msg("diff_done") };
+  }
+
+  if (result.threads.length > 0) {
+    return {
+      sessionId,
+      url,
+      status: "comments",
+      threads: result.threads,
+      message: diffCommentsMessage(baseUrl, sessionId, result.threads, result.requestComplete),
+    };
+  }
+
+  if (result.requestComplete) {
+    return {
+      sessionId,
+      url,
+      status: "next",
+      threads: [],
+      message: await diffNextMessage(session, baseUrl, sessionId),
+    };
+  }
+
+  return {
+    sessionId,
+    url,
+    status: "timeout",
+    threads: [],
+    message: msg("diff_timeout_immediate", { CHANGE_PICKUP: changePickupReminder(baseUrl, sessionId) }),
+  };
+}
+
+export async function submitDiff(sessionId: string, baseUrl: string) {
+  const session = SessionDO.getInstance(sessionId);
+  await session.setContentType("diff");
+  return {
+    sessionId,
+    url: `${baseUrl}/s/${sessionId}`,
+    message: msg("diff_session_created", {
+      REQUEST_CURL: requestCurl(baseUrl, sessionId),
+      REQUEST_LIMIT: requestLimitGuidance(),
+      DISMISS_CURL: dismissRequestCurl(baseUrl, sessionId),
+      COMPLETE_CURL: completeCurl(baseUrl, sessionId),
+    }),
+  };
+}
+
+export async function requestDiffReview(
+  sessionId: string,
+  formData: FormData,
+  baseUrl: string
+) {
+  const session = SessionDO.getInstance(sessionId);
+  if (await session.isDone()) {
+    throw new RequestHunksValidationError(msg("diff_already_complete"), 409);
+  }
+
+  const description = await readFieldText(formData.get("description"), "description");
+  const diff = await readFieldText(formData.get("diff"), "diff");
+  const allowManyChanges = isTruthyFormValue(
+    typeof formData.get("allow_many_changes") === "string"
+      ? (formData.get("allow_many_changes") as string)
+      : null
+  );
+  const fingerprint = createRequestFingerprint(diff, description);
+
+  if (await session.hasActiveReviewRequest()) {
+    if (await session.hasMatchingActiveReviewRequest(fingerprint)) {
+      // Same request body — fall through to wait
+    } else if (!(await session.hasUnreadHumanComments())) {
+      // All comments addressed — allow replacement
+      await session.setActiveReviewRequest(false);
+    } else {
+      throw new RequestHunksValidationError(
+        msg("diff_request_blocked_unread", { DISMISS_CURL: dismissRequestCurl(baseUrl, sessionId) }),
+        409
+      );
+    }
+  }
+
+  if (!(await session.hasActiveReviewRequest())) {
+    const { parsed, hunks, sections, selectedHunks } = prepareDiffReviewRequest(
+      description,
+      diff
+    );
+    await assertManyChangesAllowed(
+      session,
+      hunks,
+      allowManyChanges,
+      baseUrl,
+      sessionId
+    );
+
+    const totalLines = selectedHunks.reduce(
+      (sum, hunk) => sum + countRenderedHunkLines(hunk.content),
+      0
+    );
+    if (selectedHunks.length > 1 && totalLines > MAX_VIEW_LINES) {
+      throw new RequestHunksValidationError(
+        msg("diff_request_rejected_too_many_lines", {
+          HUNK_COUNT: selectedHunks.length,
+          TOTAL_LINES: totalLines,
+          REQUEST_LIMIT: requestLimitGuidance(),
+        })
+      );
+    }
+
+    await session.replaceHunks(parsed);
+    await session.setView(
+      description,
+      selectedHunks.map((hunk) => hunk.id),
+      sections,
+      fingerprint
+    );
+  }
+
+  return {
+    sessionId,
+    url: `${baseUrl}/s/${sessionId}`,
+    ...(await waitForDiffReviewProgress(sessionId, baseUrl)),
+  };
+}
+
+export async function pollDiffReview(sessionId: string, baseUrl: string) {
+  return waitForDiffReviewProgress(sessionId, baseUrl);
+}
+
+export async function dismissRequest(sessionId: string, baseUrl: string) {
+  const session = SessionDO.getInstance(sessionId);
+  if (!(await session.hasActiveReviewRequest())) {
+    throw new RequestHunksValidationError(msg("diff_dismiss_no_request"), 409);
+  }
+  if (await session.hasUnreadHumanComments()) {
+    throw new RequestHunksValidationError(msg("diff_dismiss_unread"), 409);
+  }
+
+  await session.setActiveReviewRequest(false);
+  return {
+    sessionId,
+    message: msg("diff_dismissed", { REQUEST_CURL: requestCurl(baseUrl, sessionId) }),
+  };
+}
+
+export async function completeDiffReview(
   sessionId: string,
   diff: string,
   baseUrl: string
 ) {
   const session = SessionDO.getInstance(sessionId);
-  await session.setContentType("diff");
-  const parsed = parseDiffToHunks(diff);
-  const hunks = await session.storeHunks(parsed);
-  return {
-    sessionId,
-    hunks,
-    message:
-      [
-        "Diff stored.",
-        "",
-        "Next, choose one or more hunk IDs and create a review view with:",
-        showHunksCurl(baseUrl, sessionId),
-      ].join("\n"),
-  };
-}
+  if (await session.hasActiveReviewRequest()) {
+    throw new RequestHunksValidationError(msg("diff_complete_while_active"), 409);
+  }
 
-export async function showHunks(
-  sessionId: string,
-  hunkIds: number[],
-  description: string,
-  baseUrl: string
-) {
-  const session = SessionDO.getInstance(sessionId);
-  if (hunkIds.length === 0) {
-    throw new ShowHunksValidationError(
-      "show_hunks requires at least one hunk ID."
+  const parsed = parseAndValidateDiff(diff);
+  const reviewed = new Set(await session.getReviewedHunkIdsList());
+  const missing = parsed.filter((hunk) => !reviewed.has(createStableHunkId(hunk)));
+
+  if (missing.length > 0) {
+    throw new RequestHunksValidationError(
+      msg("diff_complete_missing_hunks", { COUNT: missing.length }),
+      409
     );
   }
 
-  const hunks = await session.getHunksByIds(hunkIds);
-  if (hunks.length !== hunkIds.length) {
-    const found = new Set(hunks.map((hunk) => hunk.id));
-    const missing = hunkIds.filter((id) => !found.has(id));
-    throw new ShowHunksValidationError(
-      `show_hunks rejected unknown hunk IDs: ${missing.join(", ")}.`
-    );
-  }
-
-  const totalLines = hunks.reduce(
-    (sum, hunk) => sum + countRenderedHunkLines(hunk.content),
-    0
-  );
-  if (hunks.length > 1 && totalLines > MAX_VIEW_LINES) {
-    throw new ShowHunksValidationError(
-      `show_hunks rejected ${hunks.length} hunks totaling ${totalLines} lines. Views are limited to ${MAX_VIEW_LINES} lines unless a single hunk exceeds that on its own. Split this into smaller batches.`
-    );
-  }
-
-  await session.setView(description, hunkIds);
-  const url = `${baseUrl}/session/${sessionId}`;
-  return {
-    sessionId,
-    url,
-    message:
-      [
-        "View updated.",
-        "",
-        "Poll for comments with:",
-        `curl -H 'Accept: application/json' "${baseUrl}/diff/${sessionId}/poll"`,
-      ].join("\n"),
-  };
+  await session.markSessionReviewComplete();
+  return { sessionId, message: msg("diff_session_complete") };
 }

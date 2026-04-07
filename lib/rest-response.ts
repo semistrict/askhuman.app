@@ -2,13 +2,9 @@ function escapeMarkdown(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
 }
 
-function fencedJson(value: unknown): string {
-  return ["```json", JSON.stringify(value, null, 2), "```"].join("\n");
-}
-
 function formatThread(thread: {
   id: number;
-  hunk_id?: number | null;
+  hunk_id?: string | null;
   line?: number | null;
   messages: { role: string; text: string }[];
 }): string {
@@ -18,9 +14,9 @@ function formatThread(thread: {
       : thread.line != null
         ? `L${thread.line}`
         : "general";
-  const lines = [`- Thread ${thread.id} (${location})`];
+  const lines = [`Thread ${thread.id} (${location})`];
   for (const message of thread.messages) {
-    lines.push(`  - ${message.role}: ${escapeMarkdown(message.text)}`);
+    lines.push(`${message.role}: ${escapeMarkdown(message.text)}`);
   }
   return lines.join("\n");
 }
@@ -28,6 +24,10 @@ function formatThread(thread: {
 export function wantsJson(request: Request): boolean {
   const accept = request.headers.get("accept") || "";
   return /\bapplication\/json\b/i.test(accept);
+}
+
+function withTrailingNewline(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`;
 }
 
 export function negotiatedResponse(
@@ -42,13 +42,13 @@ export function negotiatedResponse(
 
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "text/markdown; charset=utf-8");
-  return new Response(markdown, { ...init, headers });
+  return new Response(withTrailingNewline(markdown), { ...init, headers });
 }
 
 export function errorMarkdown(message: string, details?: unknown): string {
   const sections = [`# Error`, "", message];
   if (details !== undefined) {
-    sections.push("", fencedJson(details));
+    sections.push("", "## Details", "", JSON.stringify(details, null, 2));
   }
   return sections.join("\n");
 }
@@ -56,75 +56,79 @@ export function errorMarkdown(message: string, details?: unknown): string {
 export function planSubmitMarkdown(result: {
   sessionId: string;
   url: string;
-  instructions: string[];
+  instructions: string;
 }): string {
   return [
     "# Plan Review Session",
     "",
-    `- **sessionId**: \`${result.sessionId}\``,
-    `- **url**: ${result.url}`,
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
     "",
     "## Next Steps",
     "",
-    ...result.instructions.map((line) => line.replace(/\n/g, "\n")),
+    result.instructions,
   ].join("\n");
 }
 
 export function diffSubmitMarkdown(result: {
   sessionId: string;
-  hunks: {
-    id: number;
-    file: string;
-    oldStart: number;
-    oldCount: number;
-    newStart: number;
-    newCount: number;
-    preview: { first: string; last: string };
-  }[];
+  url: string;
   message?: string;
 }): string {
   return [
     "# Diff Review Session",
     "",
-    `- **sessionId**: \`${result.sessionId}\``,
-    `- **hunks**: ${result.hunks.length}`,
-    "",
-    "## Hunks",
-    "",
-    ...result.hunks.map((hunk) =>
-      [
-        `- **${hunk.id}** \`${hunk.file}\` \`-${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount}\``,
-        hunk.preview.first
-          ? `  - first: \`${escapeMarkdown(hunk.preview.first)}\``
-          : "  - first: ` `",
-        hunk.preview.last
-          ? `  - last: \`${escapeMarkdown(hunk.preview.last)}\``
-          : "  - last: ` `",
-      ].join("\n")
-    ),
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
     ...(result.message ? ["", "## Next Step", "", result.message] : []),
   ].join("\n");
 }
 
-export function viewUpdateMarkdown(result: {
+export function requestMarkdown(result: {
   sessionId: string;
   url: string;
+  status: "comments" | "timeout" | "done" | "error" | "next";
+  threads: {
+    id: number;
+    hunk_id?: string | null;
+    line?: number | null;
+    messages: { role: string; text: string }[];
+  }[];
+  message?: string;
+  next?: string;
+}): string {
+  return [
+    "# Diff Request",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    "",
+    pollMarkdown({
+      status: result.status,
+      threads: result.threads,
+      message: result.message,
+      next: result.next,
+    }),
+  ].join("\n");
+}
+
+export function actionMarkdown(title: string, result: {
+  sessionId: string;
   message?: string;
 }): string {
   return [
-    "# View Updated",
+    `# ${title}`,
     "",
-    `- **sessionId**: \`${result.sessionId}\``,
-    `- **url**: ${result.url}`,
+    `sessionId: ${result.sessionId}`,
     ...(result.message ? ["", result.message] : []),
   ].join("\n");
 }
 
 export function pollMarkdown(result: {
-  status: "comments" | "timeout" | "done";
+  status: "comments" | "timeout" | "done" | "error" | "next";
   threads: {
     id: number;
-    hunk_id?: number | null;
+    hunk_id?: string | null;
     line?: number | null;
     messages: { role: string; text: string }[];
   }[];
@@ -137,16 +141,16 @@ export function pollMarkdown(result: {
     ...(result.threads.length
       ? ["", "## Threads", "", ...result.threads.map(formatThread)]
       : []),
-    ...(result.next ? ["", "## Next", "", "```bash", result.next, "```"] : []),
+    ...(result.next ? ["", "## Next", "", result.next] : []),
   ].join("\n");
 }
 
 export function replyMarkdown(result: {
   sent: { thread_id: number; role: string; text: string }[];
-  status: "comments" | "timeout" | "done";
+  status: "comments" | "timeout" | "done" | "error" | "next";
   threads: {
     id: number;
-    hunk_id?: number | null;
+    hunk_id?: string | null;
     line?: number | null;
     messages: { role: string; text: string }[];
   }[];
@@ -160,7 +164,7 @@ export function replyMarkdown(result: {
     "",
     ...result.sent.map(
       (message) =>
-        `- thread ${message.thread_id}: ${message.role}: ${escapeMarkdown(message.text)}`
+        `thread ${message.thread_id}: ${message.role}: ${escapeMarkdown(message.text)}`
     ),
     "",
     pollMarkdown({
@@ -169,5 +173,81 @@ export function replyMarkdown(result: {
       message: result.message,
       next: result.next,
     }),
+  ].join("\n");
+}
+
+export function debugTabsMarkdown(result: {
+  tabs: {
+    tabId: string;
+    sessionId: string;
+    url: string | null;
+    title: string | null;
+    userAgent: string | null;
+    connectedAt: number;
+    lastSeenAt: number;
+  }[];
+}): string {
+  return [
+    "# Connected Tabs",
+    "",
+    `count: ${result.tabs.length}`,
+    ...result.tabs.flatMap((tab) => [
+      "",
+      `## ${tab.tabId}`,
+      `sessionId: ${tab.sessionId}`,
+      `url: ${tab.url ?? ""}`,
+      `title: ${tab.title ?? ""}`,
+      `userAgent: ${tab.userAgent ?? ""}`,
+      `connectedAt: ${new Date(tab.connectedAt).toISOString()}`,
+      `lastSeenAt: ${new Date(tab.lastSeenAt).toISOString()}`,
+    ]),
+  ].join("\n");
+}
+
+export function debugEvalMarkdown(result: {
+  tabId: string;
+  sessionId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}): string {
+  return [
+    "# Debug Eval",
+    "",
+    `tabId: ${result.tabId}`,
+    `sessionId: ${result.sessionId}`,
+    `ok: ${result.ok}`,
+    ...(result.result !== undefined
+      ? ["", "## Result", "", typeof result.result === "string" ? result.result : JSON.stringify(result.result, null, 2)]
+      : []),
+    ...(result.error ? ["", "## Error", "", result.error] : []),
+  ].join("\n");
+}
+
+export function debugAgentsMarkdown(result: {
+  agents: {
+    agentId: string;
+    sessionId: string;
+    endpoint: string | null;
+    kind: string;
+    userAgent: string | null;
+    connectedAt: number;
+    lastSeenAt: number;
+  }[];
+}): string {
+  return [
+    "# Connected Agents",
+    "",
+    `count: ${result.agents.length}`,
+    ...result.agents.flatMap((agent) => [
+      "",
+      `## ${agent.agentId}`,
+      `sessionId: ${agent.sessionId}`,
+      `endpoint: ${agent.endpoint ?? ""}`,
+      `kind: ${agent.kind}`,
+      `userAgent: ${agent.userAgent ?? ""}`,
+      `connectedAt: ${new Date(agent.connectedAt).toISOString()}`,
+      `lastSeenAt: ${new Date(agent.lastSeenAt).toISOString()}`,
+    ]),
   ].join("\n");
 }

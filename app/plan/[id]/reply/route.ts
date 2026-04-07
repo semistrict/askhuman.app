@@ -1,4 +1,10 @@
-import { replyToComments, REST_POLL_TIMEOUT_MS } from "@/lib/plan-review";
+import {
+  parseRepliesRequest,
+  replyToComments,
+  REST_POLL_TIMEOUT_MS,
+  withTrackedAgentLongPoll,
+} from "@/lib/hitl";
+import { msg } from "@/lib/agent-messages";
 import {
   errorMarkdown,
   negotiatedResponse,
@@ -10,15 +16,15 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = (await request.json()) as {
-    replies: { threadId: number; text: string }[];
-  };
+  const replies = await parseRepliesRequest(request);
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
-  const result = await replyToComments(
-    id,
-    body.replies,
-    REST_POLL_TIMEOUT_MS,
-    baseUrl
+  const result = await withTrackedAgentLongPoll(request, id, "plan_reply", () =>
+    replyToComments(
+      id,
+      replies,
+      REST_POLL_TIMEOUT_MS,
+      baseUrl
+    )
   );
   return negotiatedResponse(request, result, replyMarkdown(result));
 }
@@ -28,7 +34,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   await params;
-  const error = { error: "POST replies to this endpoint" };
+  const error = { error: msg("route_plan_reply_get") };
   return negotiatedResponse(
     request,
     error,

@@ -27,7 +27,7 @@ function postThreadAfterDelay(
   return new Promise<void>((resolve, reject) => {
     setTimeout(() => {
       request
-        .post(`/session/${sessionId}/threads`, {
+        .post(`/s/${sessionId}/threads`, {
           data: { text },
         })
         .then(() => resolve(), reject);
@@ -56,19 +56,19 @@ test.describe("Plan Review", () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body.sessionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      /^[A-Za-z0-9_-]{22}$/
     );
-    expect(body.url).toContain(`/session/${body.sessionId}`);
+    expect(body.url).toContain(`/s/${body.sessionId}`);
   });
 
   test("human views plan", async ({ page }) => {
-    await page.goto(`/session/${sessionId}`);
+    await page.goto(`/s/${sessionId}`);
     await expect(page.locator("text=Architecture Plan").first()).toBeVisible();
     await expect(page.locator("button >> text=1").first()).toBeVisible();
   });
 
   test("human posts general comment", async ({ request }) => {
-    const res = await request.post(`/session/${sessionId}/threads`, {
+    const res = await request.post(`/s/${sessionId}/threads`, {
       data: { text: "This looks good overall!" },
     });
     expect(res.status()).toBe(200);
@@ -80,7 +80,7 @@ test.describe("Plan Review", () => {
   });
 
   test("human posts line comment", async ({ request }) => {
-    const res = await request.post(`/session/${sessionId}/threads`, {
+    const res = await request.post(`/s/${sessionId}/threads`, {
       data: { line: 3, text: "Can you clarify this?" },
     });
     expect(res.status()).toBe(200);
@@ -96,7 +96,7 @@ test.describe("Plan Review", () => {
     });
     const { sessionId: id } = await planRes.json();
 
-    await request.post(`/session/${id}/threads`, {
+    await request.post(`/s/${id}/threads`, {
       data: { text: "New feedback" },
     });
 
@@ -107,10 +107,73 @@ test.describe("Plan Review", () => {
     const body = await res.json();
     expect(body.status).toBe("comments");
     expect(body.threads[0].messages[0].text).toBe("New feedback");
+    expect(body.message).toContain("Do not wait for confirmation.");
+    expect(body.message).toContain("make sure the same user can review the updated result");
+  });
+
+  test("poll returns error if the human has not connected", async ({ request }) => {
+    const planRes = await request.post("/plan", {
+      data: "# Waiting\nNo browser yet.",
+      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+    });
+    const { sessionId: id, url } = await planRes.json();
+
+    const res = await request.get(`/plan/${id}/poll`, {
+      headers: JSON_ACCEPT,
+      timeout: 10000,
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("error");
+    expect(body.url).toBe(url);
+    expect(body.message).toContain("The same user you are already interacting with has not connected yet.");
+    expect(body.message).toContain(url);
+    expect(body.message).toContain(`open "${url}"`);
+  });
+
+  test("poll returns error after the human disconnects for 5 seconds", async ({ page, request }) => {
+    const planRes = await request.post("/plan", {
+      data: "# Waiting\nDisconnect test.",
+      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+    });
+    const { sessionId: id } = await planRes.json();
+
+    await page.goto(`/s/${id}`);
+    await expect(page.getByText("Plan Review")).toBeVisible();
+
+    const pollPromise = fetch(`http://localhost:15032/plan/${id}/poll`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "curl/8.7.1",
+      },
+    });
+
+    await page.waitForTimeout(250);
+    await page.close();
+
+    const pollRes = await pollPromise;
+    expect(pollRes.status).toBe(200);
+    const body = await pollRes.json() as { status: string; message: string };
+    expect(body.status).toBe("error");
+    expect(body.message).toContain("No human reviewer tabs have been connected to this session for at least 5 seconds.");
+    expect(body.message).toContain(`open "http://localhost:15032/s/${id}"`);
+  });
+
+  test("curling the session page returns a human-facing warning", async ({ request }) => {
+    const res = await request.get(`/s/${sessionId}`, {
+      headers: { "User-Agent": "curl/8.7.1" },
+    });
+
+    expect(res.status()).toBe(200);
+    expect(res.headers()["content-type"]).toContain("text/plain");
+    const text = await res.text();
+    expect(text).toContain("This URL is meant for the human reviewer, not the agent.");
+    expect(text).toContain(`open "http://localhost:15032/s/${sessionId}"`);
+    expect(text).toContain(`xdg-open "http://localhost:15032/s/${sessionId}"`);
   });
 
   test("agent replies to thread", async ({ request }) => {
-    const threadRes = await request.post(`/session/${sessionId}/threads`, {
+    const threadRes = await request.post(`/s/${sessionId}/threads`, {
       data: { text: "Question about step 1" },
     });
     const thread = await threadRes.json();
@@ -121,10 +184,9 @@ test.describe("Plan Review", () => {
       "Follow-up after reply"
     );
     const res = await request.post(`/plan/${sessionId}/reply`, {
-      data: {
-        replies: [
-          { threadId: thread.id, text: "Good point, I will update the plan." },
-        ],
+      multipart: {
+        threadId: String(thread.id),
+        text: "Good point, I will update the plan.",
       },
       headers: JSON_ACCEPT,
       timeout: 10000,
@@ -136,6 +198,7 @@ test.describe("Plan Review", () => {
     expect(body.sent[0].text).toBe("Good point, I will update the plan.");
     expect(body.sent[0].thread_id).toBe(thread.id);
     expect(body.status).toBe("comments");
+    expect(body.message).toContain("make sure the same user can review the updated result");
   });
 
   test("WebSocket receives agent reply", async ({ page, request }) => {
@@ -145,12 +208,12 @@ test.describe("Plan Review", () => {
     });
     const { sessionId: id } = await planRes.json();
 
-    const threadRes = await request.post(`/session/${id}/threads`, {
+    const threadRes = await request.post(`/s/${id}/threads`, {
       data: { text: "Initial comment" },
     });
     const thread = await threadRes.json();
 
-    await page.goto(`/session/${id}`);
+    await page.goto(`/s/${id}`);
     await expect(page.locator("text=Initial comment")).toBeVisible();
     await page.locator("text=Initial comment").click();
 
@@ -160,8 +223,9 @@ test.describe("Plan Review", () => {
       "Second human comment"
     );
     await request.post(`/plan/${id}/reply`, {
-      data: {
-        replies: [{ threadId: thread.id, text: "Agent reply via WS" }],
+      multipart: {
+        threadId: String(thread.id),
+        text: "Agent reply via WS",
       },
       headers: JSON_ACCEPT,
       timeout: 10000,
@@ -204,10 +268,10 @@ test.describe("Plan Review", () => {
     const { sessionId: id } = await planRes.json();
 
     // Human posts comment then immediately clicks Done
-    await request.post(`/session/${id}/threads`, {
+    await request.post(`/s/${id}/threads`, {
       data: { text: "Last-minute feedback" },
     });
-    await request.post(`/session/${id}/done`);
+    await request.post(`/s/${id}/done`);
 
     // Agent polls — should get both the comment AND done status
     const res = await request.get(`/plan/${id}/poll`, {
@@ -231,7 +295,7 @@ test.describe("Plan Review", () => {
   });
 
   test("404 for nonexistent session page", async ({ page }) => {
-    await page.goto("/session/nonexistent-id");
+    await page.goto("/s/nonexistent-id");
     await expect(page.locator("text=No content found")).toBeVisible();
   });
 });

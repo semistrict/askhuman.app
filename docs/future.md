@@ -10,7 +10,7 @@ Zero-knowledge plan review where the server only sees ciphertext.
 ```bash
 KEY=$(openssl rand -base64 32)
 openssl enc -aes-256-gcm -in plan.md | curl --data-binary @- https://askhuman.app/plan
-# reviewer URL: https://askhuman.app/session/uuid#key=$KEY
+# reviewer URL: https://askhuman.app/s/uuid#key=$KEY
 ```
 
 **The hard part:** Comments and replies also need encryption/decryption. The agent would need to:

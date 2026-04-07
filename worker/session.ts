@@ -1,11 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { env } from "cloudflare:workers";
+import { createHash } from "node:crypto";
+import { createCompactId } from "@/lib/compact-id";
+import { DebugIndexDO } from "@/worker/debug-index";
 
 const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface Thread {
   id: number;
-  hunk_id: number | null;
+  hunk_id: string | null;
   line: number | null;
   created_at: number;
   messages: Message[];
@@ -19,8 +22,71 @@ export interface Message {
   created_at: number;
 }
 
+function formatPreview(hunk: {
+  oldStart: number;
+  newStart: number;
+  content: string;
+}): string {
+  const lines = hunk.content.split("\n").filter((line) => line !== "\\ No newline at end of file");
+  let oldLine = hunk.oldStart;
+  let newLine = hunk.newStart;
+  const previewLines: { lineNumber: number; text: string }[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("-")) {
+      previewLines.push({ lineNumber: oldLine, text: line.slice(1) });
+      oldLine += 1;
+      continue;
+    }
+    if (line.startsWith("+")) {
+      previewLines.push({ lineNumber: newLine, text: line.slice(1) });
+      newLine += 1;
+      continue;
+    }
+    if (line.startsWith(" ")) {
+      previewLines.push({ lineNumber: newLine, text: line.slice(1) });
+      oldLine += 1;
+      newLine += 1;
+      continue;
+    }
+  }
+
+  const compact = (value: string) =>
+    value.length > 20 ? `${value.slice(0, 20)}...` : value;
+  const selected =
+    previewLines.length <= 4
+      ? previewLines
+      : [previewLines[0], previewLines[1], null, previewLines[previewLines.length - 2], previewLines[previewLines.length - 1]];
+  const numbered = selected.filter((line): line is { lineNumber: number; text: string } => line !== null);
+  const width = Math.max(...numbered.map((line) => String(line.lineNumber).length), 1);
+  const formatLine = ({ lineNumber, text }: { lineNumber: number; text: string }) =>
+    `${String(lineNumber).padStart(width)}    ${compact(text)}`;
+  return selected
+    .map((line) => (line === null ? "..." : formatLine(line)))
+    .join("\n");
+}
+
+type StoredHunkInput = {
+  filePath: string;
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  header: string;
+  content: string;
+};
+
+export type ViewSection =
+  | { type: "markdown"; markdown: string }
+  | { type: "hunk"; hunkId: string };
+
+function createPublicHunkId(hunk: StoredHunkInput): string {
+  const payload = [hunk.filePath, hunk.content].join("\n");
+  return createHash("md5").update(payload).digest("base64url");
+}
+
 type Waiter = {
-  resolve: (value: { threads: Thread[]; done?: boolean }) => void;
+  resolve: (value: { threads: Thread[]; done?: boolean; requestComplete?: boolean }) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
@@ -29,9 +95,70 @@ type ActivityWaiter = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+type ConnectionWaiter = {
+  resolve: (value: { connected: boolean }) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+type PresenceWaiter = {
+  resolve: (value: { connected: boolean }) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+type DebugEvalWaiter = {
+  tabId: string;
+  resolve: (value: { ok: boolean; result?: unknown; error?: string }) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+type TabAttachment = {
+  tabId: string;
+};
+
+type ConnectedTab = {
+  tabId: string;
+  sessionId: string;
+  url: string | null;
+  title: string | null;
+  userAgent: string | null;
+  connectedAt: number;
+  lastSeenAt: number;
+  connected: boolean;
+};
+
+type ConnectedAgent = {
+  agentId: string;
+  sessionId: string;
+  endpoint: string | null;
+  kind: string;
+  userAgent: string | null;
+  connectedAt: number;
+  lastSeenAt: number;
+  connected: boolean;
+};
+
+type TabHelloMessage = {
+  type: "tab_hello";
+  url: string;
+  title: string;
+  userAgent: string;
+};
+
+type DebugEvalResultMessage = {
+  type: "debug_eval_result";
+  requestId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+};
+
 export class SessionDO extends DurableObject {
   private waiters: Waiter[] = [];
   private activityWaiters: ActivityWaiter[] = [];
+  private connectionWaiters: ConnectionWaiter[] = [];
+  private presenceWaiters: PresenceWaiter[] = [];
+  private debugEvalWaiters = new Map<string, DebugEvalWaiter>();
 
   static getInstance(id: string) {
     const doId = env.SESSION.idFromName(id);
@@ -58,6 +185,7 @@ export class SessionDO extends DurableObject {
         CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value INTEGER);
         CREATE TABLE IF NOT EXISTS hunks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          public_id TEXT,
           file_path TEXT NOT NULL,
           old_start INTEGER NOT NULL,
           old_count INTEGER NOT NULL,
@@ -71,22 +199,364 @@ export class SessionDO extends DurableObject {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           description TEXT NOT NULL,
           hunk_ids TEXT NOT NULL,
+          sections_json TEXT NOT NULL DEFAULT '[]',
           created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS reviewed_hunks (
+          public_id TEXT PRIMARY KEY,
+          reviewed_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS tabs (
+          tab_id TEXT PRIMARY KEY,
+          url TEXT,
+          title TEXT,
+          user_agent TEXT,
+          connected_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          connected INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS agents (
+          agent_id TEXT PRIMARY KEY,
+          endpoint TEXT,
+          kind TEXT NOT NULL,
+          user_agent TEXT,
+          connected_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          connected INTEGER NOT NULL
         );
       `);
       try {
-        ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN hunk_id INTEGER");
+        ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN hunk_id TEXT");
       } catch {
         // Column already exists
+      }
+      try {
+        ctx.storage.sql.exec("ALTER TABLE hunks ADD COLUMN public_id TEXT");
+      } catch {
+        // Column already exists
+      }
+      try {
+        ctx.storage.sql.exec("ALTER TABLE views ADD COLUMN sections_json TEXT NOT NULL DEFAULT '[]'");
+      } catch {
+        // Column already exists
+      }
+      const existingHunks = ctx.storage.sql.exec<{
+        id: number;
+        public_id: string | null;
+        file_path: string;
+        old_start: number;
+        old_count: number;
+        new_start: number;
+        new_count: number;
+        header: string;
+        content: string;
+      }>(
+        "SELECT id, public_id, file_path, old_start, old_count, new_start, new_count, header, content FROM hunks"
+      ).toArray();
+      for (const hunk of existingHunks) {
+        if (hunk.public_id) continue;
+        ctx.storage.sql.exec(
+          "UPDATE hunks SET public_id = ? WHERE id = ?",
+          createPublicHunkId({
+            filePath: hunk.file_path,
+            oldStart: hunk.old_start,
+            oldCount: hunk.old_count,
+            newStart: hunk.new_start,
+            newCount: hunk.new_count,
+            header: hunk.header,
+            content: hunk.content,
+          }),
+          hunk.id
+        );
       }
     });
 
   }
 
+  private getSessionId(): string | null {
+    const rows = this.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM state WHERE key = 'session_id'"
+    ).toArray();
+    return rows.length > 0 ? rows[0].value : null;
+  }
+
+  private rememberSessionId(sessionId: string) {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('session_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      sessionId
+    );
+  }
+
+  private getDebugIndex() {
+    return DebugIndexDO.getInstance();
+  }
+
+  private getTabAttachment(ws: WebSocket): TabAttachment | null {
+    const attachable = ws as WebSocket & {
+      deserializeAttachment?: () => unknown;
+    };
+    const value = attachable.deserializeAttachment?.();
+    if (!value || typeof value !== "object") return null;
+    const maybe = value as { tabId?: unknown };
+    return typeof maybe.tabId === "string" ? { tabId: maybe.tabId } : null;
+  }
+
+  private async upsertTabRecord(
+    tabId: string,
+    sessionId: string,
+    patch: Partial<Omit<ConnectedTab, "tabId" | "sessionId">> = {}
+  ) {
+    const now = patch.lastSeenAt ?? Date.now();
+    const existing = this.ctx.storage.sql.exec<{
+      url: string | null;
+      title: string | null;
+      user_agent: string | null;
+      connected_at: number;
+      last_seen_at: number;
+      connected: number;
+    }>(
+      "SELECT url, title, user_agent, connected_at, last_seen_at, connected FROM tabs WHERE tab_id = ? LIMIT 1",
+      tabId
+    ).toArray()[0];
+
+    const record: ConnectedTab = {
+      tabId,
+      sessionId,
+      url: patch.url ?? existing?.url ?? null,
+      title: patch.title ?? existing?.title ?? null,
+      userAgent: patch.userAgent ?? existing?.user_agent ?? null,
+      connectedAt: patch.connectedAt ?? existing?.connected_at ?? now,
+      lastSeenAt: now,
+      connected: patch.connected ?? (existing ? existing.connected === 1 : true),
+    };
+
+    this.ctx.storage.sql.exec(
+      `
+        INSERT INTO tabs (tab_id, url, title, user_agent, connected_at, last_seen_at, connected)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tab_id) DO UPDATE SET
+          url = excluded.url,
+          title = excluded.title,
+          user_agent = excluded.user_agent,
+          connected_at = excluded.connected_at,
+          last_seen_at = excluded.last_seen_at,
+          connected = excluded.connected
+      `,
+      record.tabId,
+      record.url,
+      record.title,
+      record.userAgent,
+      record.connectedAt,
+      record.lastSeenAt,
+      record.connected ? 1 : 0
+    );
+
+    await this.getDebugIndex().upsertTab({
+      tabId: record.tabId,
+      sessionId: record.sessionId,
+      url: record.url,
+      title: record.title,
+      userAgent: record.userAgent,
+      connectedAt: record.connectedAt,
+      lastSeenAt: record.lastSeenAt,
+      connected: record.connected,
+    });
+    await this.resolvePresenceWaiters();
+  }
+
+  private async markTabDisconnected(tabId: string) {
+    this.ctx.storage.sql.exec(
+      "UPDATE tabs SET connected = 0, last_seen_at = ? WHERE tab_id = ?",
+      Date.now(),
+      tabId
+    );
+    await this.getDebugIndex().markTabDisconnected(tabId);
+    await this.resolvePresenceWaiters();
+  }
+
+  async listConnectedTabs(): Promise<ConnectedTab[]> {
+    const sessionId = this.getSessionId();
+    const rows = this.ctx.storage.sql.exec<{
+      tab_id: string;
+      url: string | null;
+      title: string | null;
+      user_agent: string | null;
+      connected_at: number;
+      last_seen_at: number;
+      connected: number;
+    }>(
+      `
+        SELECT tab_id, url, title, user_agent, connected_at, last_seen_at, connected
+        FROM tabs
+        WHERE connected = 1
+        ORDER BY connected_at ASC, tab_id ASC
+      `
+    ).toArray();
+    return rows.map((row) => ({
+      tabId: row.tab_id,
+      sessionId: sessionId ?? "",
+      url: row.url,
+      title: row.title,
+      userAgent: row.user_agent,
+      connectedAt: row.connected_at,
+      lastSeenAt: row.last_seen_at,
+      connected: row.connected === 1,
+    }));
+  }
+
+  async hasConnectedHumanTabs(): Promise<boolean> {
+    const rows = this.ctx.storage.sql.exec<{ present: number }>(
+      "SELECT 1 as present FROM tabs WHERE connected = 1 LIMIT 1"
+    ).toArray();
+    return rows.length > 0;
+  }
+
+  async startAgentConnection(input: {
+    sessionId: string;
+    endpoint: string | null;
+    kind: string;
+    userAgent: string | null;
+  }): Promise<string> {
+    this.rememberSessionId(input.sessionId);
+    const agentId = createCompactId();
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `
+        INSERT INTO agents (agent_id, endpoint, kind, user_agent, connected_at, last_seen_at, connected)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `,
+      agentId,
+      input.endpoint,
+      input.kind,
+      input.userAgent,
+      now,
+      now
+    );
+    await this.getDebugIndex().upsertAgent({
+      agentId,
+      sessionId: input.sessionId,
+      endpoint: input.endpoint,
+      kind: input.kind,
+      userAgent: input.userAgent,
+      connectedAt: now,
+      lastSeenAt: now,
+      connected: true,
+    });
+    return agentId;
+  }
+
+  async endAgentConnection(agentId: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "UPDATE agents SET connected = 0, last_seen_at = ? WHERE agent_id = ?",
+      Date.now(),
+      agentId
+    );
+    await this.getDebugIndex().markAgentDisconnected(agentId);
+  }
+
+  async listConnectedAgents(): Promise<ConnectedAgent[]> {
+    const sessionId = this.getSessionId();
+    const rows = this.ctx.storage.sql.exec<{
+      agent_id: string;
+      endpoint: string | null;
+      kind: string;
+      user_agent: string | null;
+      connected_at: number;
+      last_seen_at: number;
+      connected: number;
+    }>(
+      `
+        SELECT agent_id, endpoint, kind, user_agent, connected_at, last_seen_at, connected
+        FROM agents
+        WHERE connected = 1
+        ORDER BY connected_at ASC, agent_id ASC
+      `
+    ).toArray();
+    return rows.map((row) => ({
+      agentId: row.agent_id,
+      sessionId: sessionId ?? "",
+      endpoint: row.endpoint,
+      kind: row.kind,
+      userAgent: row.user_agent,
+      connectedAt: row.connected_at,
+      lastSeenAt: row.last_seen_at,
+      connected: row.connected === 1,
+    }));
+  }
+
+  async hasConnectedAgents(): Promise<boolean> {
+    const rows = this.ctx.storage.sql.exec<{ present: number }>(
+      "SELECT 1 as present FROM agents WHERE connected = 1 LIMIT 1"
+    ).toArray();
+    return rows.length > 0;
+  }
+
+  async debugEvalTab(
+    tabId: string,
+    code: string,
+    timeoutMs: number = 30_000
+  ): Promise<{ ok: boolean; result?: unknown; error?: string }> {
+    const tabs = await this.listConnectedTabs();
+    if (!tabs.some((tab) => tab.tabId === tabId)) {
+      throw new Error(`Connected tab ${tabId} not found in this session`);
+    }
+
+    const target = this.findWebSocketByTabId(tabId);
+    if (!target) {
+      await this.markTabDisconnected(tabId);
+      throw new Error(`Connected tab ${tabId} is no longer reachable`);
+    }
+
+    const requestId = createCompactId();
+
+    return await new Promise<{ ok: boolean; result?: unknown; error?: string }>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.debugEvalWaiters.delete(requestId);
+        reject(new Error(`Timed out waiting for tab ${tabId} to finish debug evaluation`));
+      }, timeoutMs);
+
+      this.debugEvalWaiters.set(requestId, {
+        tabId,
+        resolve,
+        reject,
+        timer,
+      });
+
+      try {
+        target.send(
+          JSON.stringify({
+            type: "debug_eval",
+            requestId,
+            code,
+          })
+        );
+      } catch (error) {
+        clearTimeout(timer);
+        this.debugEvalWaiters.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private findWebSocketByTabId(tabId: string): WebSocket | null {
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = this.getTabAttachment(ws);
+      if (attachment?.tabId === tabId) {
+        return ws;
+      }
+    }
+    return null;
+  }
+
   async markDone(): Promise<void> {
+    await this.finalizeSessionDone();
+  }
+
+  private async finalizeSessionDone(): Promise<void> {
     this.ctx.storage.sql.exec(
       "INSERT INTO state (key, value) VALUES ('done', 1) ON CONFLICT(key) DO UPDATE SET value = 1"
     );
+    await this.setActiveReviewRequest(false);
     this.broadcast({ type: "done" });
     this.resolveWaiters();
   }
@@ -127,9 +597,10 @@ export class SessionDO extends DurableObject {
     return rows.length > 0 && rows[0].value === 1 ? "diff" : "plan";
   }
 
-  async createThread(line: number | null, text: string, hunkId?: number | null): Promise<Thread> {
+  async createThread(line: number | null, text: string, hunkId?: string | null): Promise<Thread> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
+    await this.markHumanConnected();
 
     sql.exec(
       "INSERT INTO threads (line, hunk_id, created_at) VALUES (?, ?, ?)",
@@ -161,6 +632,28 @@ export class SessionDO extends DurableObject {
     return thread;
   }
 
+  async advanceCursorPastThreads(threadIds: number[]): Promise<void> {
+    if (threadIds.length === 0) return;
+    const sql = this.ctx.storage.sql;
+    const placeholders = threadIds.map(() => "?").join(",");
+    const rows = sql.exec<{ max_id: number }>(
+      `SELECT MAX(id) as max_id FROM messages WHERE thread_id IN (${placeholders})`,
+      ...threadIds
+    ).toArray();
+    if (rows.length === 0 || rows[0].max_id === null) return;
+    const maxId = rows[0].max_id;
+    const cursorRows = sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'agent_cursor'"
+    ).toArray();
+    const currentCursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
+    if (maxId > currentCursor) {
+      sql.exec(
+        "INSERT INTO state (key, value) VALUES ('agent_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        maxId
+      );
+    }
+  }
+
   async addMessage(threadId: number, role: string, text: string): Promise<Message> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
@@ -185,6 +678,7 @@ export class SessionDO extends DurableObject {
 
     // Only resolve waiters for human messages (agent polls for human comments)
     if (role === "human") {
+      await this.markHumanConnected();
       this.resolveWaiters();
     }
 
@@ -193,28 +687,25 @@ export class SessionDO extends DurableObject {
     return message;
   }
 
-  async storeHunks(hunks: { filePath: string; oldStart: number; oldCount: number; newStart: number; newCount: number; header: string; content: string }[]) {
+  async replaceHunks(hunks: StoredHunkInput[]) {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
-    const meta: { id: number; file: string; oldStart: number; oldCount: number; newStart: number; newCount: number; preview: { first: string; last: string } }[] = [];
+    sql.exec("DELETE FROM hunks");
+    const meta: { id: string; file: string; oldStart: number; oldCount: number; newStart: number; newCount: number; preview: string }[] = [];
     for (const h of hunks) {
+      const publicId = createPublicHunkId(h);
       sql.exec(
-        "INSERT INTO hunks (file_path, old_start, old_count, new_start, new_count, header, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        h.filePath, h.oldStart, h.oldCount, h.newStart, h.newCount, h.header, h.content, now
+        "INSERT INTO hunks (public_id, file_path, old_start, old_count, new_start, new_count, header, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        publicId, h.filePath, h.oldStart, h.oldCount, h.newStart, h.newCount, h.header, h.content, now
       );
-      const id = sql.exec<{ id: number }>("SELECT last_insert_rowid() as id").one().id;
-      const lines = h.content.split("\n").filter((l) => l.startsWith("+") || l.startsWith("-"));
       meta.push({
-        id,
+        id: publicId,
         file: h.filePath,
         oldStart: h.oldStart,
         oldCount: h.oldCount,
         newStart: h.newStart,
         newCount: h.newCount,
-        preview: {
-          first: lines[0]?.slice(1) ?? "",
-          last: lines.length > 1 ? lines[lines.length - 1].slice(1) : "",
-        },
+        preview: formatPreview(h),
       });
     }
     return meta;
@@ -222,67 +713,227 @@ export class SessionDO extends DurableObject {
 
   async getHunkMeta() {
     const sql = this.ctx.storage.sql;
-    const rows = sql.exec<{ id: number; file_path: string; old_start: number; old_count: number; new_start: number; new_count: number; content: string }>(
-      "SELECT id, file_path, old_start, old_count, new_start, new_count, content FROM hunks ORDER BY id"
+    const rows = sql.exec<{ public_id: string; file_path: string; old_start: number; old_count: number; new_start: number; new_count: number; content: string }>(
+      "SELECT public_id, file_path, old_start, old_count, new_start, new_count, content FROM hunks ORDER BY id"
     ).toArray();
     return rows.map((r) => {
-      const lines = r.content.split("\n").filter((l) => l.startsWith("+") || l.startsWith("-"));
       return {
-        id: r.id,
+        id: r.public_id,
         file: r.file_path,
         oldStart: r.old_start,
         oldCount: r.old_count,
         newStart: r.new_start,
         newCount: r.new_count,
-        preview: {
-          first: lines[0]?.slice(1) ?? "",
-          last: lines.length > 1 ? lines[lines.length - 1].slice(1) : "",
-        },
+        preview: formatPreview({
+          oldStart: r.old_start,
+          newStart: r.new_start,
+          content: r.content,
+        }),
       };
     });
   }
 
-  async getHunksByIds(ids: number[]) {
+  async getHunksByIds(ids: string[]) {
     if (ids.length === 0) return [];
     const sql = this.ctx.storage.sql;
     const placeholders = ids.map(() => "?").join(",");
-    const rows = sql.exec<{ id: number; file_path: string; old_start: number; old_count: number; new_start: number; new_count: number; header: string; content: string }>(
-      `SELECT id, file_path, old_start, old_count, new_start, new_count, header, content FROM hunks WHERE id IN (${placeholders}) ORDER BY id`,
+    const rows = sql.exec<{ public_id: string; file_path: string; old_start: number; old_count: number; new_start: number; new_count: number; header: string; content: string }>(
+      `SELECT public_id, file_path, old_start, old_count, new_start, new_count, header, content FROM hunks WHERE public_id IN (${placeholders})`,
       ...ids
     ).toArray();
-    return rows.map((r) => ({
-      id: r.id,
-      filePath: r.file_path,
-      oldStart: r.old_start,
-      oldCount: r.old_count,
-      newStart: r.new_start,
-      newCount: r.new_count,
-      header: r.header,
-      content: r.content,
-    }));
+    const rowsById = new Map(rows.map((row) => [row.public_id, row]));
+    return ids.flatMap((id) => {
+      const row = rowsById.get(id);
+      if (!row) return [];
+      return [{
+        id: row.public_id,
+        filePath: row.file_path,
+        oldStart: row.old_start,
+        oldCount: row.old_count,
+        newStart: row.new_start,
+        newCount: row.new_count,
+        header: row.header,
+        content: row.content,
+      }];
+    });
   }
 
-  async setView(description: string, hunkIds: number[]): Promise<void> {
+  async setView(
+    description: string,
+    hunkIds: string[],
+    sections: ViewSection[],
+    fingerprint: string
+  ): Promise<void> {
     const sql = this.ctx.storage.sql;
+    await this.setActiveReviewRequest(true, fingerprint);
     sql.exec(
-      "INSERT INTO views (description, hunk_ids, created_at) VALUES (?, ?, ?)",
-      description, JSON.stringify(hunkIds), Date.now()
+      "INSERT INTO state (key, value) VALUES ('request_complete_seq', 0) ON CONFLICT(key) DO NOTHING"
+    );
+    sql.exec(
+      "INSERT INTO views (description, hunk_ids, sections_json, created_at) VALUES (?, ?, ?, ?)",
+      description,
+      JSON.stringify(hunkIds),
+      JSON.stringify(sections),
+      Date.now()
     );
     this.broadcast({ type: "view", description, hunkIds });
   }
 
-  async getView(): Promise<{ description: string; hunkIds: number[] } | null> {
+  async hasActiveReviewRequest(): Promise<boolean> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'active_review_request'"
+    ).toArray();
+    return rows.length > 0 && rows[0].value === 1;
+  }
+
+  async setActiveReviewRequest(
+    active: boolean,
+    fingerprint: string | null = null
+  ): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('active_review_request', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      active ? 1 : 0
+    );
+    if (active) {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO state (key, value) VALUES ('active_review_request_fingerprint', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        fingerprint ?? ""
+      );
+    } else {
+      this.ctx.storage.sql.exec(
+        "DELETE FROM state WHERE key = 'active_review_request_fingerprint'"
+      );
+    }
+  }
+
+  async hasMatchingActiveReviewRequest(fingerprint: string): Promise<boolean> {
+    if (!(await this.hasActiveReviewRequest())) return false;
+    const rows = this.ctx.storage.sql.exec<{ value: string }>(
+      "SELECT value FROM state WHERE key = 'active_review_request_fingerprint'"
+    ).toArray();
+    return rows.length > 0 && rows[0].value === fingerprint;
+  }
+
+  async hasUnreadHumanComments(): Promise<boolean> {
     const sql = this.ctx.storage.sql;
-    const rows = sql.exec<{ description: string; hunk_ids: string }>(
-      "SELECT description, hunk_ids FROM views ORDER BY id DESC LIMIT 1"
+    const cursorRows = sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'agent_cursor'"
+    ).toArray();
+    const cursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
+    const unread = sql.exec<{ id: number }>(
+      "SELECT id FROM messages WHERE id > ? AND role = 'human' LIMIT 1",
+      cursor
+    ).toArray();
+    return unread.length > 0;
+  }
+
+  async getView(): Promise<{ description: string; hunkIds: string[]; sections: ViewSection[] } | null> {
+    const sql = this.ctx.storage.sql;
+    const rows = sql.exec<{ description: string; hunk_ids: string; sections_json: string }>(
+      "SELECT description, hunk_ids, sections_json FROM views ORDER BY id DESC LIMIT 1"
     ).toArray();
     if (rows.length === 0) return null;
-    return { description: rows[0].description, hunkIds: JSON.parse(rows[0].hunk_ids) };
+    return {
+      description: rows[0].description,
+      hunkIds: JSON.parse(rows[0].hunk_ids) as string[],
+      sections: JSON.parse(rows[0].sections_json) as ViewSection[],
+    };
+  }
+
+  private getRequestCompleteSeq(): number {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'request_complete_seq'"
+    ).toArray();
+    return rows.length > 0 ? rows[0].value : 0;
+  }
+
+  private getAgentRequestCursor(): number {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'agent_request_cursor'"
+    ).toArray();
+    return rows.length > 0 ? rows[0].value : 0;
+  }
+
+  private advanceAgentRequestCursor(value: number) {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('agent_request_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  private bumpRequestCompleteSeq(): number {
+    const next = this.getRequestCompleteSeq() + 1;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('request_complete_seq', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      next
+    );
+    return next;
+  }
+
+  private getReviewedHunkIds(): Set<string> {
+    const rows = this.ctx.storage.sql.exec<{ public_id: string }>(
+      "SELECT public_id FROM reviewed_hunks"
+    ).toArray();
+    return new Set(rows.map((row) => row.public_id));
+  }
+
+  async getReviewedHunkIdsList(): Promise<string[]> {
+    return [...this.getReviewedHunkIds()];
+  }
+
+  async hasMoreUnreviewedHunksAfterCurrentView(): Promise<boolean> {
+    const view = await this.getView();
+    const currentIds = new Set(view?.hunkIds ?? []);
+    const reviewed = this.getReviewedHunkIds();
+    const rows = this.ctx.storage.sql.exec<{ public_id: string }>(
+      "SELECT public_id FROM hunks"
+    ).toArray();
+    return rows.some((row) => !reviewed.has(row.public_id) && !currentIds.has(row.public_id));
+  }
+
+  private async markCurrentViewReviewed(): Promise<void> {
+    const view = await this.getView();
+    if (!view) return;
+    const now = Date.now();
+    for (const hunkId of view.hunkIds) {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO reviewed_hunks (public_id, reviewed_at) VALUES (?, ?) ON CONFLICT(public_id) DO NOTHING",
+        hunkId,
+        now
+      );
+    }
+  }
+
+  async hasAnyUnreviewedHunks(): Promise<boolean> {
+    const reviewed = this.getReviewedHunkIds();
+    const rows = this.ctx.storage.sql.exec<{ public_id: string }>(
+      "SELECT public_id FROM hunks"
+    ).toArray();
+    return rows.some((row) => !reviewed.has(row.public_id));
+  }
+
+  async completeCurrentReviewRequest(): Promise<{ done: boolean; allReviewed: boolean }> {
+    if (!(await this.hasActiveReviewRequest())) {
+      return { done: await this.isDone(), allReviewed: !(await this.hasAnyUnreviewedHunks()) };
+    }
+
+    await this.markCurrentViewReviewed();
+    const allReviewed = !(await this.hasAnyUnreviewedHunks());
+
+    await this.setActiveReviewRequest(false);
+    this.bumpRequestCompleteSeq();
+    this.broadcast({ type: "request_complete" });
+    this.resolveWaiters();
+    return { done: allReviewed, allReviewed };
+  }
+
+  async markSessionReviewComplete(): Promise<void> {
+    await this.finalizeSessionDone();
   }
 
   async getThreads(): Promise<Thread[]> {
     const sql = this.ctx.storage.sql;
-    const threadRows = sql.exec<{ id: number; hunk_id: number | null; line: number | null; created_at: number }>(
+    const threadRows = sql.exec<{ id: number; hunk_id: string | null; line: number | null; created_at: number }>(
       "SELECT id, hunk_id, line, created_at FROM threads ORDER BY id"
     ).toArray();
 
@@ -297,7 +948,7 @@ export class SessionDO extends DurableObject {
     return threads;
   }
 
-  async waitForComments(timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS): Promise<{ threads: Thread[]; done?: boolean }> {
+  async waitForComments(timeoutMs: number = DEFAULT_POLL_TIMEOUT_MS): Promise<{ threads: Thread[]; done?: boolean; requestComplete?: boolean; noHuman?: boolean }> {
     const sql = this.ctx.storage.sql;
 
     // Get or initialize agent cursor
@@ -311,11 +962,26 @@ export class SessionDO extends DurableObject {
       "SELECT id FROM messages WHERE id > ? AND role = 'human' LIMIT 1",
       cursor
     ).toArray();
+    const requestCompleteSeq = this.getRequestCompleteSeq();
+    const agentRequestCursor = this.getAgentRequestCursor();
 
     const done = await this.isDone();
 
     if (newMessages.length > 0) {
-      return { ...this.collectAndAdvanceCursor(cursor), done: done || undefined };
+      const includesRequestComplete = requestCompleteSeq > agentRequestCursor;
+      if (includesRequestComplete) {
+        this.advanceAgentRequestCursor(requestCompleteSeq);
+      }
+      return {
+        ...this.collectAndAdvanceCursor(cursor),
+        done: done || undefined,
+        requestComplete: includesRequestComplete || undefined,
+      };
+    }
+
+    if (requestCompleteSeq > agentRequestCursor) {
+      this.advanceAgentRequestCursor(requestCompleteSeq);
+      return { threads: [], requestComplete: true };
     }
 
     // Already done with no unread comments — return immediately
@@ -323,25 +989,133 @@ export class SessionDO extends DurableObject {
       return { threads: [], done: true };
     }
 
-    // Wait for new activity
-    return new Promise<{ threads: Thread[] }>((resolve) => {
+    // Wait for new activity, but fail fast if no human tabs stay connected for 5s.
+    return new Promise<{ threads: Thread[]; requestComplete?: boolean; noHuman?: boolean }>(async (resolve) => {
+      let noHumanTimer: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
+      let wakeResolve: ((value: { connected: boolean }) => void) | null = null;
+      let registerPresenceWaiter: (() => void) | null = null;
+
+      const finish = (value: { threads: Thread[]; requestComplete?: boolean; noHuman?: boolean }) => {
+        if (settled) return;
+        settled = true;
+        if (noHumanTimer) clearTimeout(noHumanTimer);
+        this.waiters = this.waiters.filter((w) => w.resolve !== waiterResolve);
+        this.presenceWaiters = this.presenceWaiters.filter((w) => w.resolve !== wakeResolve);
+        resolve(value);
+      };
+
+      const beginNoHumanTimer = () => {
+        if (noHumanTimer || settled) return;
+        noHumanTimer = setTimeout(() => {
+          noHumanTimer = null;
+          finish({ threads: [], noHuman: true });
+        }, 5_000);
+      };
+
+      const stopNoHumanTimer = () => {
+        if (!noHumanTimer) return;
+        clearTimeout(noHumanTimer);
+        noHumanTimer = null;
+      };
+
       const timer = setTimeout(() => {
-        this.waiters = this.waiters.filter((w) => w.resolve !== resolve);
         const currentCursorRows = sql.exec<{ value: number }>(
           "SELECT value FROM state WHERE key = 'agent_cursor'"
         ).toArray();
         const currentCursor = currentCursorRows.length > 0 ? currentCursorRows[0].value : 0;
+        const currentRequestCompleteSeq = this.getRequestCompleteSeq();
+        const currentAgentRequestCursor = this.getAgentRequestCursor();
         const result = this.collectThreadsSinceCursor(currentCursor);
         if (result.threads.length > 0) {
           this.advanceCursor(result.threads);
-          resolve(result);
+          const includesRequestComplete = currentRequestCompleteSeq > currentAgentRequestCursor;
+          if (includesRequestComplete) {
+            this.advanceAgentRequestCursor(currentRequestCompleteSeq);
+          }
+          finish({ ...result, requestComplete: includesRequestComplete || undefined });
+        } else if (currentRequestCompleteSeq > currentAgentRequestCursor) {
+          this.advanceAgentRequestCursor(currentRequestCompleteSeq);
+          finish({ threads: [], requestComplete: true });
         } else {
-          resolve({ threads: [] });
+          finish({ threads: [] });
         }
       }, timeoutMs);
 
-      this.waiters.push({ resolve, timer });
+      const waiterResolve = (value: { threads: Thread[]; done?: boolean; requestComplete?: boolean }) => {
+        clearTimeout(timer);
+        stopNoHumanTimer();
+        finish(value);
+      };
+      this.waiters.push({ resolve: waiterResolve, timer });
+
+      wakeResolve = ({ connected }: { connected: boolean }) => {
+        if (settled) return;
+        if (connected) {
+          stopNoHumanTimer();
+        } else {
+          beginNoHumanTimer();
+        }
+        registerPresenceWaiter?.();
+      };
+
+      const initiallyConnected = await this.hasConnectedHumanTabs();
+      if (!initiallyConnected) {
+        beginNoHumanTimer();
+      }
+      registerPresenceWaiter = () => {
+        const presenceTimer = setTimeout(() => {
+          this.presenceWaiters = this.presenceWaiters.filter((w) => w.resolve !== wakeResolve);
+        }, timeoutMs);
+        this.presenceWaiters.push({ resolve: wakeResolve!, timer: presenceTimer });
+      };
+      registerPresenceWaiter();
     });
+  }
+
+  async consumeAgentUpdate(): Promise<{ threads: Thread[]; done?: boolean; requestComplete?: boolean }> {
+    const result = await this.peekAgentUpdate();
+    if (result.threads.length > 0) {
+      this.advanceCursor(result.threads);
+    }
+    if (result.requestComplete) {
+      const requestCompleteSeq = this.getRequestCompleteSeq();
+      const agentRequestCursor = this.getAgentRequestCursor();
+      if (requestCompleteSeq > agentRequestCursor) {
+        this.advanceAgentRequestCursor(requestCompleteSeq);
+      }
+    }
+    return result;
+  }
+
+  async peekAgentUpdate(): Promise<{ threads: Thread[]; done?: boolean; requestComplete?: boolean }> {
+    const sql = this.ctx.storage.sql;
+    const cursorRows = sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'agent_cursor'"
+    ).toArray();
+    const cursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
+    const newMessages = sql.exec<{ id: number }>(
+      "SELECT id FROM messages WHERE id > ? AND role = 'human' LIMIT 1",
+      cursor
+    ).toArray();
+    const requestCompleteSeq = this.getRequestCompleteSeq();
+    const agentRequestCursor = this.getAgentRequestCursor();
+    const done = await this.isDone();
+
+    if (newMessages.length > 0) {
+      return {
+        ...this.collectThreadsSinceCursor(cursor),
+        done: done || undefined,
+        requestComplete: requestCompleteSeq > agentRequestCursor || undefined,
+      };
+    }
+    if (requestCompleteSeq > agentRequestCursor) {
+      return { threads: [], requestComplete: true };
+    }
+    if (done) {
+      return { threads: [], done: true };
+    }
+    return { threads: [] };
   }
 
   private collectAndAdvanceCursor(cursor: number): { threads: Thread[] } {
@@ -364,7 +1138,7 @@ export class SessionDO extends DurableObject {
 
     const threads: Thread[] = [];
     for (const tid of threadIds) {
-      const threadRows = sql.exec<{ id: number; hunk_id: number | null; line: number | null; created_at: number }>(
+      const threadRows = sql.exec<{ id: number; hunk_id: string | null; line: number | null; created_at: number }>(
         "SELECT id, hunk_id, line, created_at FROM threads WHERE id = ?", tid
       ).toArray();
       if (threadRows.length === 0) continue;
@@ -410,9 +1184,17 @@ export class SessionDO extends DurableObject {
         "SELECT value FROM state WHERE key = 'agent_cursor'"
       ).toArray();
       const cursor = cursorRows.length > 0 ? cursorRows[0].value : 0;
+      const requestCompleteSeq = this.getRequestCompleteSeq();
+      const agentRequestCursor = this.getAgentRequestCursor();
       const result = this.collectAndAdvanceCursor(cursor);
       if (done) {
         w.resolve({ ...result, done: true });
+      } else if (result.threads.length > 0 && requestCompleteSeq > agentRequestCursor) {
+        this.advanceAgentRequestCursor(requestCompleteSeq);
+        w.resolve({ ...result, requestComplete: true });
+      } else if (result.threads.length === 0 && requestCompleteSeq > agentRequestCursor) {
+        this.advanceAgentRequestCursor(requestCompleteSeq);
+        w.resolve({ threads: [], requestComplete: true });
       } else {
         w.resolve(result);
       }
@@ -439,6 +1221,45 @@ export class SessionDO extends DurableObject {
     });
   }
 
+  async hasHumanConnected(): Promise<boolean> {
+    return this.hasConnectedHumanTabs();
+  }
+
+  async waitForHumanConnection(timeoutMs: number): Promise<{ connected: boolean }> {
+    if (await this.hasHumanConnected()) {
+      return { connected: true };
+    }
+
+    return new Promise<{ connected: boolean }>((resolve) => {
+      const timer = setTimeout(() => {
+        this.connectionWaiters = this.connectionWaiters.filter((w) => w.resolve !== resolve);
+        resolve({ connected: false });
+      }, timeoutMs);
+
+      this.connectionWaiters.push({ resolve, timer });
+    });
+  }
+
+  private async markHumanConnected(): Promise<void> {
+    const connectionWaiters = this.connectionWaiters;
+    this.connectionWaiters = [];
+    for (const waiter of connectionWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve({ connected: true });
+    }
+    await this.resolvePresenceWaiters();
+  }
+
+  private async resolvePresenceWaiters() {
+    const connected = await this.hasConnectedHumanTabs();
+    const waiters = this.presenceWaiters;
+    this.presenceWaiters = [];
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timer);
+      waiter.resolve({ connected });
+    }
+  }
+
   private broadcast(data: unknown) {
     const json = JSON.stringify(data);
     for (const ws of this.ctx.getWebSockets()) {
@@ -456,12 +1277,90 @@ export class SessionDO extends DurableObject {
       return new Response("Expected WebSocket", { status: 426 });
     }
 
+    const sessionMatch = new URL(request.url).pathname.match(/^\/s\/([^/]+)\/ws$/);
+    const sessionId = sessionMatch?.[1];
+    if (!sessionId) {
+      return new Response("Missing session id", { status: 400 });
+    }
+
+    this.rememberSessionId(sessionId);
+
     const pair = new WebSocketPair();
+    const tabId = createCompactId();
+    await this.markHumanConnected();
     this.ctx.acceptWebSocket(pair[1]);
+    const serverSocket = pair[1] as WebSocket & {
+      serializeAttachment?: (value: unknown) => void;
+    };
+    serverSocket.serializeAttachment?.({ tabId } satisfies TabAttachment);
+    await this.upsertTabRecord(tabId, sessionId, {
+      url: `/s/${sessionId}`,
+      userAgent: request.headers.get("user-agent"),
+      connected: true,
+    });
+    try {
+      serverSocket.send(JSON.stringify({ type: "tab_ready", tabId }));
+    } catch {
+      // Ignore eager send failures; the tab will still be tracked and updated by hello.
+    }
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string) {
-    ws.close(code, reason);
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (typeof message !== "string") return;
+
+    let data: TabHelloMessage | DebugEvalResultMessage;
+    try {
+      data = JSON.parse(message) as TabHelloMessage | DebugEvalResultMessage;
+    } catch {
+      return;
+    }
+
+    const attachment = this.getTabAttachment(ws);
+    if (!attachment) return;
+    const sessionId = this.getSessionId();
+    if (!sessionId) return;
+
+    if (data.type === "tab_hello") {
+      await this.upsertTabRecord(attachment.tabId, sessionId, {
+        url: data.url,
+        title: data.title,
+        userAgent: data.userAgent,
+        connected: true,
+      });
+      return;
+    }
+
+    if (data.type === "debug_eval_result") {
+      const waiter = this.debugEvalWaiters.get(data.requestId);
+      if (!waiter) return;
+      clearTimeout(waiter.timer);
+      this.debugEvalWaiters.delete(data.requestId);
+      waiter.resolve({
+        ok: data.ok,
+        result: data.result,
+        error: data.error,
+      });
+    }
+  }
+
+  async webSocketClose(ws: WebSocket) {
+    const attachment = this.getTabAttachment(ws);
+    if (attachment) {
+      await this.markTabDisconnected(attachment.tabId);
+      for (const [requestId, waiter] of this.debugEvalWaiters) {
+        if (waiter.tabId !== attachment.tabId) continue;
+        clearTimeout(waiter.timer);
+        this.debugEvalWaiters.delete(requestId);
+        waiter.reject(new Error(`Tab ${attachment.tabId} disconnected before returning a debug result`));
+      }
+    }
+  }
+
+  async webSocketError(ws: WebSocket) {
+    const attachment = this.getTabAttachment(ws);
+    if (attachment) {
+      await this.markTabDisconnected(attachment.tabId);
+    }
   }
 }

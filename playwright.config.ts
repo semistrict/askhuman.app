@@ -2,14 +2,15 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
+  testMatch: /.*\.spec\.ts$/,
   timeout: 30000,
   retries: 0,
   use: {
-    baseURL: "http://localhost:3001",
+    baseURL: "http://localhost:15032",
   },
   webServer: {
     command: "pnpm run dev:vinext",
-    port: 3001,
+    port: 15032,
     reuseExistingServer: true,
   },
 });

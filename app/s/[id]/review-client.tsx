@@ -7,6 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
+import { PlanLine } from "@/components/plan-line";
+import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 
 interface Props {
   sessionId: string;
@@ -31,12 +33,19 @@ export function ReviewClient({
   // WebSocket connection
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/session/${sessionId}/ws`;
+    const wsUrl = `${protocol}//${window.location.host}/s/${sessionId}/ws`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.addEventListener("message", (event) => {
+    ws.addEventListener("open", () => {
+      sendTabHello(ws);
+    });
+
+    ws.addEventListener("message", async (event) => {
       const data = JSON.parse(event.data);
+      if (await handleDebugSocketMessage(ws, data)) {
+        return;
+      }
       if (data.type === "thread") {
         setThreads((prev) => {
           if (prev.some((t) => t.id === data.thread.id)) return prev;
@@ -72,7 +81,7 @@ export function ReviewClient({
 
   const createThread = useCallback(
     async (line: number | null, text: string) => {
-      const res = await fetch(`/session/${sessionId}/threads`, {
+      const res = await fetch(`/s/${sessionId}/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ line, text }),
@@ -93,7 +102,7 @@ export function ReviewClient({
     async (threadId: number) => {
       const text = replyTexts[threadId];
       if (!text?.trim()) return;
-      await fetch(`/session/${sessionId}/threads/${threadId}/messages`, {
+      await fetch(`/s/${sessionId}/threads/${threadId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
@@ -184,7 +193,7 @@ export function ReviewClient({
                           )}
                         </button>
                         <pre className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words">
-                          <StyledLine text={line} />
+                          <PlanLine text={line} />
                         </pre>
                       </div>
 
@@ -255,7 +264,7 @@ export function ReviewClient({
             onNewCommentTextChange={setPanelCommentText}
             onCreateGeneralComment={(text) => createThread(null, text)}
             onDone={async () => {
-              await fetch(`/session/${sessionId}/done`, { method: "POST" });
+              await fetch(`/s/${sessionId}/done`, { method: "POST" });
               window.close();
             }}
             replyTexts={replyTexts}
@@ -271,94 +280,4 @@ export function ReviewClient({
       </div>
     </div>
   );
-}
-
-function StyledLine({ text }: { text: string }) {
-  if (!text) return <span>{"\u00A0"}</span>;
-
-  const headingMatch = text.match(/^(#{1,4})\s(.+)/);
-  if (headingMatch) {
-    const level = headingMatch[1].length;
-    const sizeClass = level === 1 ? "text-base" : level === 2 ? "text-[0.9375rem]" : "text-sm";
-    return (
-      <span className={`font-bold text-foreground ${sizeClass}`}>
-        <span className="text-muted-foreground/40">{headingMatch[1]} </span>
-        {headingMatch[2]}
-      </span>
-    );
-  }
-
-  if (text.match(/^```/)) {
-    return <span className="text-muted-foreground/60 italic">{text}</span>;
-  }
-
-  if (text.match(/^\s*[-*]\s/)) {
-    const idx = text.indexOf("- ") !== -1 ? text.indexOf("- ") : text.indexOf("* ");
-    return (
-      <span>
-        <span className="text-muted-foreground/40">{text.slice(0, idx + 2)}</span>
-        <InlineFormatted text={text.slice(idx + 2)} />
-      </span>
-    );
-  }
-  if (text.match(/^\s*\d+\.\s/)) {
-    const idx = text.indexOf(". ") + 2;
-    return (
-      <span>
-        <span className="text-muted-foreground/40">{text.slice(0, idx)}</span>
-        <InlineFormatted text={text.slice(idx)} />
-      </span>
-    );
-  }
-
-  if (text.match(/^>\s/)) {
-    return (
-      <span className="text-muted-foreground italic">
-        <span className="text-muted-foreground/40">{"> "}</span>
-        {text.slice(2)}
-      </span>
-    );
-  }
-
-  return <InlineFormatted text={text} />;
-}
-
-function InlineFormatted({ text }: { text: string }) {
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith("**")) {
-      parts.push(
-        <span key={match.index} className="font-bold text-foreground">
-          {token.slice(2, -2)}
-        </span>
-      );
-    } else if (token.startsWith("`")) {
-      parts.push(
-        <span key={match.index} className="text-foreground bg-muted px-1 rounded-sm">
-          {token.slice(1, -1)}
-        </span>
-      );
-    } else if (token.startsWith("*")) {
-      parts.push(
-        <span key={match.index} className="italic">
-          {token.slice(1, -1)}
-        </span>
-      );
-    }
-    lastIndex = match.index + token.length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return <span>{parts.length > 0 ? parts : text}</span>;
 }

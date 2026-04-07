@@ -28,21 +28,20 @@ Use the askhuman curl API to get human feedback on a plan before implementing it
 3. **Poll for comments**: Run the poll curl command returned by submit, or:
 
    ```bash
-   curl -H 'Accept: application/json' https://askhuman.app/plan/<sessionId>/poll
+   curl -s https://askhuman.app/plan/<sessionId>/poll
    ```
 
    This long-polls up to 10 minutes and returns one of three statuses:
-   - `"comments"` — new feedback arrived. Make any requested code changes first, then reply in the affected threads. If no code changes are needed, reply immediately.
+   - `"comments"` — new feedback arrived. Immediately begin addressing it and do not wait for confirmation. Make any requested code changes first, then reply in the affected threads. If no code changes are needed, reply immediately.
    - `"timeout"` — no activity yet. Poll again.
    - `"done"` — the reviewer clicked Done. The review is finished.
 
 4. **Reply to comments**: After making any requested code changes, run the reply curl command returned by poll, or:
 
    ```bash
-   curl -X POST https://askhuman.app/plan/<sessionId>/reply \
-     -H 'Content-Type: application/json' \
-     -H 'Accept: application/json' \
-     --data-binary '{"replies":[{"threadId":1,"text":"your reply"}]}'
+   curl -s -X POST https://askhuman.app/plan/<sessionId>/reply \
+     -F threadId=1 \
+     -F text='your reply'
    ```
 
    If a comment does not require code changes, reply immediately. This posts your replies (visible in the reviewer's browser via WebSocket) and automatically polls for the next round of comments.
@@ -51,7 +50,7 @@ Use the askhuman curl API to get human feedback on a plan before implementing it
 
 ## Tips
 
-- The `sessionId` is a UUID that identifies the review session. Include it in every curl after submit.
+- The `sessionId` is a short URL-safe random ID that identifies the review session. Include it in every curl after submit.
 - Comments have a `line` field (number or null). Null means a general comment; a number means the reviewer commented on that specific line of the plan.
 - Each thread has an `id` — use it as the `threadId` when replying.
 - The reviewer sees your replies in real-time via WebSocket. No need to tell them to refresh.

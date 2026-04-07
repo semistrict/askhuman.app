@@ -26,13 +26,13 @@ curl https://askhuman.app
 | Interface | Endpoint | Use |
 |-----------|----------|-----|
 | REST | `https://askhuman.app/plan` | curl, fetch, any HTTP client |
-| Browser | `https://askhuman.app/session/{id}` | Human reviewer UI |
+| Browser | `https://askhuman.app/s/{id}` | Human reviewer UI |
 
 ## Development
 
 ```bash
 pnpm install
-pnpm run dev:vinext    # local dev server on port 3001
+pnpm run dev:vinext    # local dev server on port 15032
 pnpm exec playwright test  # run tests
 pnpm run deploy        # deploy to Cloudflare Workers
 ```
@@ -50,7 +50,7 @@ One Durable Object:
 
 ## Security Model
 
-Sessions are identified by UUID. There is no authentication — the session ID is the sole access control. This is intentional for frictionless agent usage. Don't use this for sensitive content on a shared instance without understanding this tradeoff.
+Sessions are identified by short URL-safe random IDs. There is no authentication — the session ID is the sole access control. This is intentional for frictionless agent usage. Don't use this for sensitive content on a shared instance without understanding this tradeoff.
 
 ## License
 

@@ -21,13 +21,15 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "SESSION", "class_name": "SessionDO" }
+      { "name": "SESSION", "class_name": "SessionDO" },
+      { "name": "DEBUG_INDEX", "class_name": "DebugIndexDO" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PlanSession"] },
     { "tag": "v2", "new_classes": ["McpSession"] },
     { "tag": "v3", "renamed_classes": [{ "from": "PlanSession", "to": "SessionDO" }] },
-    { "tag": "v4", "deleted_classes": ["McpSession"] }
+    { "tag": "v4", "deleted_classes": ["McpSession"] },
+    { "tag": "v5", "new_sqlite_classes": ["DebugIndexDO"] }
   ]
 }

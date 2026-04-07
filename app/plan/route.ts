@@ -1,4 +1,5 @@
 import { createSession, submitPlan } from "@/lib/plan-review";
+import { msg } from "@/lib/agent-messages";
 import {
   errorMarkdown,
   negotiatedResponse,
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const error = { error: "POST a markdown body to create a plan review session" };
+  const error = { error: msg("route_plan_get") };
   return negotiatedResponse(
     request,
     error,

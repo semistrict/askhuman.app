@@ -1,4 +1,5 @@
-import { pollComments, REST_POLL_TIMEOUT_MS } from "@/lib/plan-review";
+import { withTrackedAgentLongPoll } from "@/lib/hitl";
+import { pollDiffReview } from "@/lib/diff-review";
 import { negotiatedResponse, pollMarkdown } from "@/lib/rest-response";
 
 export async function GET(
@@ -7,11 +8,8 @@ export async function GET(
 ) {
   const { id } = await params;
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
-  const result = await pollComments(
-    id,
-    REST_POLL_TIMEOUT_MS,
-    baseUrl,
-    "diff"
+  const result = await withTrackedAgentLongPoll(request, id, "diff_poll", () =>
+    pollDiffReview(id, baseUrl)
   );
   return negotiatedResponse(request, result, pollMarkdown(result));
 }

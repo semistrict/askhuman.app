@@ -10,24 +10,27 @@ import type { ImageConfig } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
 export { SessionDO } from "./session";
+export { DebugIndexDO } from "./debug-index";
 
 async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
 
   const text = `askhuman.app -- human-in-the-loop review tools for AI agents
 
+Use this with the same user you are already interacting with. After you submit, open the returned review URL in that user's browser.
+
 1. Write your plan to a file, then post it:
 
-  curl --data-binary @plan.md ${base}/plan
+  curl -s --data-binary @plan.md ${base}/plan
 
 2. Or submit a diff for review:
 
-  git diff | curl --data-binary @- ${base}/diff
+  curl -s -X POST ${base}/diff
 
-Response includes sessionId, review URL, and ready-to-run commands for the remaining steps.
+Response includes sessionId, review URL, and ready-to-run commands for sending /request payloads with the latest full diff.
 `;
 
-  return new Response(text, {
+  return new Response(text.endsWith("\n") ? text : `${text}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
@@ -122,19 +125,19 @@ function handleRootHtml(): Response {
   </div>
   <p class="note">Auto-creates a session and prints everything your agent needs.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'git diff | curl --data-binary @- https://askhuman.app/diff')">
-    <div class="label">Submit a diff for review</div>
-    <pre>git diff | curl --data-binary @- https://askhuman.app/diff</pre>
+  <div class="cmd" onclick="copyCmd(this, 'curl -s -X POST https://askhuman.app/diff')">
+    <div class="label">Start a diff review session</div>
+    <pre>curl -s -X POST https://askhuman.app/diff</pre>
     <span class="copy">copied</span>
   </div>
-  <p class="note">Colored diff view with line-specific comments.</p>
+  <p class="note">Creates an empty session, then tells your agent how to send the latest full diff with each request.</p>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl --data-binary @plan.md https://askhuman.app/plan')">
+  <div class="cmd" onclick="copyCmd(this, 'curl -s --data-binary @plan.md https://askhuman.app/plan')">
     <div class="label">Submit a plan for review</div>
-    <pre>curl --data-binary @plan.md https://askhuman.app/plan</pre>
+    <pre>curl -s --data-binary @plan.md https://askhuman.app/plan</pre>
     <span class="copy">copied</span>
   </div>
-  <p class="note">Posts markdown and returns session-specific curl commands.</p>
+  <p class="note">Use it with the same user you are already interacting with. Posts markdown and returns session-specific curl commands.</p>
 
   <div class="links">
     <a href="https://github.com/semistrict/askhuman.app">github</a>
@@ -172,6 +175,7 @@ interface Env {
     };
   };
   SESSION: DurableObjectNamespace;
+  DEBUG_INDEX: DurableObjectNamespace;
 }
 
 // Image security config. SVG sources with .svg extension auto-skip the
