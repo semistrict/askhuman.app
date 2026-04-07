@@ -124,13 +124,12 @@ function handleRootHtml(): Response {
     <span class="copy">copy</span>
   </div>
 
-  <div class="cmd" onclick="copyCmd(this, 'curl -s https://askhuman.app | claude &quot;follow these instructions to review my current diff&quot;')">
+  <div class="cmd" onclick="copyCmd(this, 'claude &quot;$(curl -s https://askhuman.app) -- review my current diff&quot;')">
     <div class="label">Prompt-inject yourself</div>
-    <pre>curl -s https://askhuman.app | claude \
-  "follow these instructions to review my current diff"</pre>
+    <pre>claude "$(curl -s https://askhuman.app) -- review my current diff"</pre>
     <span class="copy">copy</span>
   </div>
-  <p class="note">Works with any agent that accepts piped context.</p>
+  <p class="note">Works with any agent that accepts a prompt string.</p>
 
   <div class="links">
     <a href="https://github.com/semistrict/askhuman.app">github</a>
