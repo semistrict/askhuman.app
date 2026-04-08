@@ -260,7 +260,7 @@ test.describe("Plan Review", () => {
     await expect(page.locator("text=#1")).toBeVisible();
     await expect(page.locator("text=Looks great")).toBeVisible();
     // Done notice shown, buttons gone
-    await expect(page.locator("text=Waiting for agent")).toBeVisible();
+    await expect(page.locator("text=Waiting for the agent to update this session.")).toBeVisible();
     await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
     await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
   });

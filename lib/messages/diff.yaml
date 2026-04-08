@@ -7,7 +7,7 @@ diff_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for reviewer comments (returns when they click Done):
+  Poll for the completed review (returns when they click Done):
     curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
 
   After code changes, resubmit the updated diff:
@@ -16,14 +16,14 @@ diff_created: |
       -F description=@description.md \
       -F diff=@current.diff
 
-  When status is "comments", address each numbered comment.
+  When the review is returned, address each numbered comment.
 
   IMPORTANT: The description MUST narrate the change. Do not just
   submit a diff with a bare title. Describe WHY each file changed,
   what the reviewer should focus on, and break large changes into
   sections with markdown headings (## per file or logical group).
   The server validates that descriptions have enough headers,
-  enough prose (>= 15% of diff lines), and no section longer
+  enough prose (>= 5% of diff lines), and no section longer
   than 200 lines. Submissions that fail these checks are rejected.
 
 diff_updated: >-
@@ -49,6 +49,6 @@ diff_description_section_too_long: >-
 
 diff_description_too_little_prose: >-
   The description has only {PROSE_LINES} lines of prose for a
-  {DIFF_LINES}-line diff ({PERCENT}%). Write at least 10% as many
+  {DIFF_LINES}-line diff ({PERCENT}%). Write at least 5% as many
   lines of description as the diff (capped at 200 lines) to give
   the reviewer context.

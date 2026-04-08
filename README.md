@@ -2,7 +2,7 @@
 
 Human-in-the-loop review tools for AI agents. Sometimes your agent needs to phone a friend.
 
-Agents submit plans or diffs via curl. Humans review in their browser with threaded, line-specific comments. Agents poll and reply with curl. Loop until done.
+Agents submit plans, diffs, files, or playgrounds via curl. Humans review in their browser with general or line-specific comments, then click Done. Agents poll for the completed review and update the session as needed.
 
 **Live at [askhuman.app](https://askhuman.app)**
 
@@ -15,17 +15,17 @@ curl https://askhuman.app
 
 ## How It Works
 
-1. Agent submits a markdown plan
-2. Human reviews in browser, posts threaded comments (general or on specific lines)
-3. Agent polls for comments, replies
-4. Human sees replies in real-time via WebSocket
-5. Loop until human clicks Done
+1. Agent submits a plan, diff, file set, or playground
+2. Human reviews in the browser and leaves comments
+3. Human clicks Done when the review is ready
+4. Agent polls for the completed review
+5. Agent updates the session or starts a fresh review when needed
 
 ## Interfaces
 
 | Interface | Endpoint | Use |
 |-----------|----------|-----|
-| REST | `https://askhuman.app/plan` | curl, fetch, any HTTP client |
+| REST | `https://askhuman.app/{plan,diff,files,playground}` | curl, fetch, any HTTP client |
 | Browser | `https://askhuman.app/s/{id}` | Human reviewer UI |
 
 ## Development
@@ -46,7 +46,7 @@ Requires: Node.js, pnpm, wrangler (Cloudflare CLI).
 - **Real-time:** WebSocket (hibernation API) for browser updates
 
 One Durable Object:
-- `SessionDO` — stores plans/diffs, threads, messages, and review views (SQLite). Handles WebSocket for browser clients and long-polling for curl-based agents.
+- `SessionDO` — stores session content, comments, and review state (SQLite). Handles WebSocket for browser clients and long-polling for curl-based agents.
 
 ## Security Model
 

@@ -7,7 +7,7 @@ file_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for reviewer comments (returns when they click Done):
+  Poll for the completed review (returns when they click Done):
     curl -s "{BASE_URL}/files/{SESSION_ID}/poll"
 
   After code changes, re-upload all files:
@@ -16,7 +16,7 @@ file_created: |
       -F "path/to/file.ts=<path/to/file.ts"
 
   Files not included in a re-upload are removed from the review.
-  When status is "comments", address each numbered comment.
+  When the review is returned, address each numbered comment.
 
 file_updated: >-
   Files updated ({FILE_COUNT} file(s)). Comments on removed files

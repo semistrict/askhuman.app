@@ -7,7 +7,7 @@ playground_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for the result (returns when the user clicks Done):
+  Poll for the completed review (returns when the user clicks Done):
     curl -s "{BASE_URL}/playground/{SESSION_ID}/poll"
 
   The HTML can send results back via:
@@ -21,7 +21,7 @@ playground_created: |
       -F "html=<playground.html"
 
 playground_updated: >-
-  Playground updated with new HTML. Continue polling for the result.
+  Playground updated with new HTML. Continue polling for the completed review.
 
 playground_no_html: >-
   Missing "html" field. Submit the playground HTML as a multipart

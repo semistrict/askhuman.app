@@ -142,7 +142,7 @@ test.describe("Playground", () => {
     // Comment visible
     await expect(page.locator("text=Looks good")).toBeVisible();
     // Done notice shown, buttons gone
-    await expect(page.locator("text=Waiting for agent")).toBeVisible();
+    await expect(page.locator("text=Waiting for the agent to update this session.")).toBeVisible();
     await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
   });
 

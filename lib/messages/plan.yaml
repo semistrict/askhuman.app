@@ -4,12 +4,12 @@ plan_instructions: |-
      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{URL}" &
     Or fall back to: open "{URL}" / xdg-open "{URL}"
     Or just show the URL to the user (they cannot see this text).
-  - Poll for the user's comments (returns when they click Done):
+  - Poll for the completed review (returns when they click Done):
      curl -s {POLL_URL}
-  - When status is "comments", address each numbered comment.
+  - When the review is returned, address each numbered comment.
 
 plan_comments: >-
-  The reviewer is done. Address each numbered comment below.
+  Review complete. Address each numbered comment below.
 
 plan_timeout: >-
   No new comments yet. The human may still be reviewing. Poll again.
@@ -29,5 +29,5 @@ plan_change_pickup_files: >-
 
 plan_change_pickup_generic: >-
   If you make code changes in response to these comments, make sure the same
-  user can review the updated result. Start a fresh review session with the
-  updated plan or diff when needed.
+  user can review the updated result. Update this session or start a fresh
+  review session with the new material when needed.

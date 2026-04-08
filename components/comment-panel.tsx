@@ -40,7 +40,7 @@ export function CommentPanel({
       {/* General comment form + Done -- always at top */}
       <div className="border-b border-border p-4 shrink-0">
         {isDone ? (
-          <p className="text-sm text-muted-foreground">Review submitted. Waiting for agent...</p>
+          <p className="text-sm text-muted-foreground">Review submitted. Waiting for the agent to update this session.</p>
         ) : (
           <>
             <Textarea

@@ -18,7 +18,7 @@ async function handleRootPlain(request: Request): Promise<Response> {
   const text = `# askhuman.app
 
 Human-in-the-loop review tools for AI agents.
-Submit via curl, open the URL for the user, poll for their feedback.
+Submit via curl, open the URL for the user, and poll for the completed review.
 
 ## Plan review
 

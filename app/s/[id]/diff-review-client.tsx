@@ -312,7 +312,7 @@ export function DiffReviewClient({
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center space-y-2">
-          <div className="text-lg font-mono text-foreground">Waiting for agent...</div>
+          <div className="text-lg font-mono text-foreground">Waiting for the agent to submit a diff...</div>
           <p className="text-sm text-muted-foreground">The agent has not submitted a diff yet.</p>
           <Badge variant="outline" className="font-mono text-xs">{sessionId.slice(0, 8)}</Badge>
         </div>

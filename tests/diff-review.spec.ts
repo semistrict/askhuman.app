@@ -57,7 +57,7 @@ ${additions}
 
 function desc(diff: string, title: string, body: string): string {
   const diffLines = diff.split("\n").length;
-  const minProse = Math.ceil(diffLines * 0.15);
+  const minProse = Math.ceil(diffLines * 0.05);
   const lines = [`# ${title}`, "", body];
   while (lines.filter((l) => l.trim().length > 0 && !l.startsWith("#")).length < minProse) {
     lines.push("This change is part of the ongoing refactor.");
@@ -249,7 +249,7 @@ diff --git a/b.ts b/b.ts
     await page.goto(`/s/${sessionId}`);
     await expect(page.locator("text=const z = 4;")).toBeVisible();
     await expect(page.locator("text=Fix the import")).toBeVisible();
-    await expect(page.locator("text=Waiting for agent")).toBeVisible();
+    await expect(page.locator("text=Waiting for the agent to update this session.")).toBeVisible();
     await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
   });
 
@@ -308,6 +308,6 @@ diff --git a/b.ts b/b.ts
     });
     expect(res.status()).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain("10%");
+    expect(body.error).toContain("5%");
   });
 });
