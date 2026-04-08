@@ -15,6 +15,11 @@ interface CommentPanelProps {
   onDone: () => void | Promise<void>;
   doneLabel?: string;
   isDone: boolean;
+  lockedMessage?: string;
+  lockedActionLabel?: string;
+  onLockedAction?: () => void | Promise<void>;
+  statusMessage?: string | null;
+  statusTone?: "default" | "warning" | "error";
 }
 
 function basename(path: string): string {
@@ -32,6 +37,11 @@ export function CommentPanel({
   onDone,
   doneLabel = "Done",
   isDone,
+  lockedMessage,
+  lockedActionLabel,
+  onLockedAction,
+  statusMessage,
+  statusTone = "default",
 }: CommentPanelProps) {
   const sorted = [...threads].sort((a, b) => a.created_at - b.created_at);
 
@@ -40,7 +50,21 @@ export function CommentPanel({
       {/* General comment form + Done -- always at top */}
       <div className="border-b border-border p-4 shrink-0">
         {isDone ? (
-          <p className="text-sm text-muted-foreground">Review submitted. Waiting for the agent to update this session.</p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {lockedMessage ?? "Review submitted. Waiting for the agent to update this session."}
+            </p>
+            {lockedActionLabel && onLockedAction && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={onLockedAction}
+              >
+                {lockedActionLabel}
+              </Button>
+            )}
+          </div>
         ) : (
           <>
             <Textarea
@@ -73,6 +97,19 @@ export function CommentPanel({
               </Button>
             </div>
           </>
+        )}
+        {statusMessage && (
+          <div
+            className={`mt-3 rounded-md border px-3 py-2 text-xs ${
+              statusTone === "error"
+                ? "border-red-500/30 bg-red-500/10 text-red-200"
+                : statusTone === "warning"
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
+                : "border-border bg-muted/30 text-muted-foreground"
+            }`}
+          >
+            {statusMessage}
+          </div>
         )}
       </div>
 
@@ -115,6 +152,9 @@ export function CommentPanel({
               <div className="flex items-center gap-2 mb-0.5">
                 <span className="text-[10px] font-mono font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                   #{thread.id}
+                </span>
+                <span className="text-[10px] font-mono uppercase text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  {first.role}
                 </span>
                 <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded truncate max-w-[140px]">
                   {locationLabel}

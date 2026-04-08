@@ -91,7 +91,7 @@ export function planSubmitMarkdown(result: {
   instructions: string;
 }): string {
   return [
-    "# Plan Review Session",
+    "# Doc Review Session",
     "",
     `sessionId: ${result.sessionId}`,
     `url: ${result.url}`,
@@ -99,6 +99,20 @@ export function planSubmitMarkdown(result: {
     "## Next Steps",
     "",
     result.instructions,
+  ].join("\n");
+}
+
+export function planUpdateMarkdown(result: {
+  sessionId: string;
+  url: string;
+  message?: string;
+}): string {
+  return [
+    "# Doc Updated",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    ...(result.message ? ["", result.message] : []),
   ].join("\n");
 }
 

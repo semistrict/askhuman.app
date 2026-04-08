@@ -2,7 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 import { env } from "cloudflare:workers";
 import { createHash } from "node:crypto";
 import { createCompactId } from "@/lib/compact-id";
-import { DebugIndexDO } from "@/worker/debug-index";
 
 const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -307,10 +306,6 @@ export class SessionDO extends DurableObject {
     );
   }
 
-  private getDebugIndex() {
-    return DebugIndexDO.getInstance();
-  }
-
   private getTabAttachment(ws: WebSocket): TabAttachment | null {
     const attachable = ws as WebSocket & {
       deserializeAttachment?: () => unknown;
@@ -370,17 +365,6 @@ export class SessionDO extends DurableObject {
       record.lastSeenAt,
       record.connected ? 1 : 0
     );
-
-    await this.getDebugIndex().upsertTab({
-      tabId: record.tabId,
-      sessionId: record.sessionId,
-      url: record.url,
-      title: record.title,
-      userAgent: record.userAgent,
-      connectedAt: record.connectedAt,
-      lastSeenAt: record.lastSeenAt,
-      connected: record.connected,
-    });
     await this.resolvePresenceWaiters();
   }
 
@@ -390,7 +374,6 @@ export class SessionDO extends DurableObject {
       Date.now(),
       tabId
     );
-    await this.getDebugIndex().markTabDisconnected(tabId);
     await this.resolvePresenceWaiters();
   }
 
@@ -452,16 +435,6 @@ export class SessionDO extends DurableObject {
       now,
       now
     );
-    await this.getDebugIndex().upsertAgent({
-      agentId,
-      sessionId: input.sessionId,
-      endpoint: input.endpoint,
-      kind: input.kind,
-      userAgent: input.userAgent,
-      connectedAt: now,
-      lastSeenAt: now,
-      connected: true,
-    });
     return agentId;
   }
 
@@ -471,7 +444,6 @@ export class SessionDO extends DurableObject {
       Date.now(),
       agentId
     );
-    await this.getDebugIndex().markAgentDisconnected(agentId);
   }
 
   async listConnectedAgents(): Promise<ConnectedAgent[]> {
@@ -507,6 +479,14 @@ export class SessionDO extends DurableObject {
   async hasConnectedAgents(): Promise<boolean> {
     const rows = this.ctx.storage.sql.exec<{ present: number }>(
       "SELECT 1 as present FROM agents WHERE connected = 1 LIMIT 1"
+    ).toArray();
+    return rows.length > 0;
+  }
+
+  async hasConnectedAgentKind(kind: string): Promise<boolean> {
+    const rows = this.ctx.storage.sql.exec<{ present: number }>(
+      "SELECT 1 as present FROM agents WHERE connected = 1 AND kind = ? LIMIT 1",
+      kind
     ).toArray();
     return rows.length > 0;
   }
@@ -569,6 +549,29 @@ export class SessionDO extends DurableObject {
   }
 
   async markDone(): Promise<void> {
+    await this.finalizeSessionDone();
+  }
+
+  async setDocReviewState(state: "ready" | "processing" | "complete"): Promise<void> {
+    const value = state === "processing" ? 1 : state === "complete" ? 2 : 0;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('doc_review_state', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  async getDocReviewState(): Promise<"ready" | "processing" | "complete"> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'doc_review_state'"
+    ).toArray();
+    if (rows.length === 0) return "ready";
+    if (rows[0].value === 1) return "processing";
+    if (rows[0].value === 2) return "complete";
+    return "ready";
+  }
+
+  async completeDocReview(): Promise<void> {
+    await this.setDocReviewState("complete");
     await this.finalizeSessionDone();
   }
 
@@ -713,10 +716,24 @@ export class SessionDO extends DurableObject {
     );
   }
 
-  async createThread(line: number | null, text: string, hunkId?: string | null, filePath?: string | null): Promise<Thread> {
+  async markOutdatedDocThreads(): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "UPDATE threads SET outdated = 1 WHERE hunk_id IS NULL AND file_path IS NULL"
+    );
+  }
+
+  private async createStandaloneThread(
+    role: string,
+    text: string,
+    line: number | null = null,
+    hunkId?: string | null,
+    filePath?: string | null
+  ): Promise<Thread> {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
-    await this.markHumanConnected();
+    if (role === "human") {
+      await this.markHumanConnected();
+    }
 
     sql.exec(
       "INSERT INTO threads (line, hunk_id, file_path, created_at) VALUES (?, ?, ?, ?)",
@@ -728,7 +745,7 @@ export class SessionDO extends DurableObject {
 
     sql.exec(
       "INSERT INTO messages (thread_id, role, text, created_at) VALUES (?, ?, ?, ?)",
-      threadId, "human", text, now
+      threadId, role, text, now
     );
     const messageId = sql.exec<{ id: number }>(
       "SELECT last_insert_rowid() as id"
@@ -741,12 +758,19 @@ export class SessionDO extends DurableObject {
       file_path: filePath ?? null,
       outdated: false,
       created_at: now,
-      messages: [{ id: messageId, thread_id: threadId, role: "human", text, created_at: now }],
+      messages: [{ id: messageId, thread_id: threadId, role, text, created_at: now }],
     };
 
     this.broadcast({ type: "thread", thread });
-
     return thread;
+  }
+
+  async createThread(line: number | null, text: string, hunkId?: string | null, filePath?: string | null): Promise<Thread> {
+    return this.createStandaloneThread("human", text, line, hunkId, filePath);
+  }
+
+  async createAgentThread(text: string): Promise<Thread> {
+    return this.createStandaloneThread("agent", text, null, null, null);
   }
 
   async resetDone(): Promise<void> {

@@ -15,20 +15,21 @@ interface Props {
   sessionId: string;
   planLines: string[];
   initialThreads: Thread[];
-  isDone: boolean;
+  isProcessing: boolean;
 }
 
 export function ReviewClient({
   sessionId,
   planLines,
   initialThreads,
-  isDone: initialIsDone,
+  isProcessing: initialIsProcessing,
 }: Props) {
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [activeLineThread, setActiveLineThread] = useState<number | null>(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
-  const [isDone, setIsDone] = useState(initialIsDone);
+  const [isProcessing, setIsProcessing] = useState(initialIsProcessing);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("plan-review-comments-width", 384);
 
@@ -53,12 +54,60 @@ export function ReviewClient({
           if (prev.some((t) => t.id === data.thread.id)) return prev;
           return [...prev, data.thread];
         });
+      } else if (data.type === "view") {
+        window.location.reload();
       }
     });
 
     return () => {
       ws.close();
     };
+  }, [sessionId]);
+
+  const requestRevision = useCallback(async () => {
+    const res = await fetch(`/s/${sessionId}/request-revision`, {
+      method: "POST",
+    });
+    const body = (await res.json()) as {
+      ok: boolean;
+      state: "processing" | "agent_not_polling";
+      message: string;
+      clipboardText?: string;
+    };
+
+    if (body.state === "processing") {
+      setIsProcessing(true);
+      setStatusMessage(null);
+      return;
+    }
+
+    let message = body.message;
+    if (body.clipboardText) {
+      try {
+        await navigator.clipboard.writeText(body.clipboardText);
+        message = `${body.message} Feedback copied to the clipboard.`;
+      } catch {
+        message = `${body.message} Clipboard copy failed; try again after starting the agent poll.`;
+      }
+    }
+    setStatusMessage(message);
+  }, [sessionId]);
+
+  const copyFeedback = useCallback(async () => {
+    const res = await fetch(`/s/${sessionId}/copy-feedback`, {
+      method: "POST",
+    });
+    const body = (await res.json()) as {
+      ok: boolean;
+      clipboardText: string;
+    };
+
+    try {
+      await navigator.clipboard.writeText(body.clipboardText);
+      setStatusMessage("Feedback copied to the clipboard.");
+    } catch {
+      setStatusMessage("Clipboard copy failed. Copy the feedback manually from the agent instructions.");
+    }
   }, [sessionId]);
 
   const createThread = useCallback(
@@ -73,6 +122,7 @@ export function ReviewClient({
         if (prev.some((t) => t.id === thread.id)) return prev;
         return [...prev, thread];
       });
+      setStatusMessage(null);
       setNewCommentText("");
       setPanelCommentText("");
       setActiveLineThread(null);
@@ -100,7 +150,7 @@ export function ReviewClient({
       <header className="border-b border-border px-6 py-4 shrink-0">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold tracking-tight font-mono">
-            Plan Review
+            Doc Review
           </h1>
           <Badge variant="outline" className="font-mono text-xs">
             {sessionId.slice(0, 8)}
@@ -115,7 +165,7 @@ export function ReviewClient({
             <div className="rounded-lg border border-border overflow-hidden">
               <div className="bg-muted/50 px-4 py-2 border-b border-border">
                 <span className="text-xs font-mono text-muted-foreground">
-                  plan.md
+                  doc.md
                 </span>
               </div>
               <div className="font-mono text-sm leading-relaxed">
@@ -136,7 +186,7 @@ export function ReviewClient({
                         <button
                           className="w-12 shrink-0 text-right pr-3 py-1 text-muted-foreground/50 select-none border-r border-border/50 hover:bg-accent/50 transition-colors relative"
                           onClick={() => {
-                            if (isDone) return;
+                            if (isProcessing) return;
                             if (isActive) {
                               setActiveLineThread(null);
                             } else {
@@ -144,7 +194,7 @@ export function ReviewClient({
                               setNewCommentText("");
                             }
                           }}
-                          title={isDone ? undefined : `Comment on line ${lineNum}`}
+                          title={isProcessing ? undefined : `Comment on line ${lineNum}`}
                         >
                           <span className="text-xs group-hover:hidden">{lineNum}</span>
                           <span className="text-xs hidden group-hover:inline text-primary font-bold">+</span>
@@ -216,11 +266,14 @@ export function ReviewClient({
             newCommentText={panelCommentText}
             onNewCommentTextChange={setPanelCommentText}
             onCreateGeneralComment={(text) => createThread(null, text)}
-            onDone={() => {
-              fetch(`/s/${sessionId}/done`, { method: "POST" });
-              setIsDone(true);
-            }}
-            isDone={isDone}
+            onDone={requestRevision}
+            doneLabel="Request Revision"
+            isDone={isProcessing}
+            lockedMessage="Agent processing feedback..."
+            lockedActionLabel="Copy Feedback Instead"
+            onLockedAction={copyFeedback}
+            statusMessage={statusMessage}
+            statusTone="warning"
           />
         </aside>
       </div>

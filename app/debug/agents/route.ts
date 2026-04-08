@@ -1,8 +1,8 @@
-import { DebugIndexDO } from "@/worker/debug-index";
-import { debugAgentsMarkdown, negotiatedResponse } from "@/lib/rest-response";
+import { errorMarkdown, negotiatedResponse } from "@/lib/rest-response";
 
 export async function GET(request: Request) {
-  const agents = await DebugIndexDO.getInstance().listConnectedAgents();
-  const result = { agents };
-  return negotiatedResponse(request, result, debugAgentsMarkdown(result));
+  const payload = {
+    error: "Global debug agent listing is disabled. Use /s/{sessionId}/debug/agents instead.",
+  };
+  return negotiatedResponse(request, payload, errorMarkdown(payload.error), { status: 410 });
 }

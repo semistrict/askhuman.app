@@ -28,13 +28,16 @@ route_diff_get: >-
   POST a diff body to create a diff review session
 
 route_plan_get: >-
-  POST a markdown body to create a plan review session
+  POST a markdown body to create a doc review session
 
 route_diff_reply_get: >-
   POST replies to this endpoint
 
 route_plan_reply_get: >-
-  POST replies to this endpoint
+  POST replies to this endpoint, or use /plan/{id}/update to submit a revised doc
+
+route_plan_update_get: >-
+  POST updated markdown to this endpoint to revise the current doc review session
 
 route_files_get: >-
   POST files to create a file review session

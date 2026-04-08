@@ -2,10 +2,10 @@ import { test, expect } from "@playwright/test";
 
 const JSON_ACCEPT = { Accept: "application/json" };
 
-const PLAN_MARKDOWN = `# Architecture Plan
+const PLAN_MARKDOWN = `# Architecture Doc
 
 ## Overview
-This is the plan overview.
+This is the doc overview.
 
 ## Step 1
 Implement the data layer.
@@ -18,53 +18,61 @@ const x = 42;
 \`\`\`
 `;
 
-function postThreadAfterDelay(
-  request: { post: (url: string, options: { data: { text: string } }) => Promise<unknown> },
-  sessionId: string,
-  text: string,
-  delayMs: number = 100
+async function createDocSession(
+  request: { post: Function },
+  markdown: string = PLAN_MARKDOWN
 ) {
-  return new Promise<void>((resolve, reject) => {
-    setTimeout(() => {
-      request
-        .post(`/s/${sessionId}/threads`, {
-          data: { text },
-        })
-        .then(() => resolve(), reject);
-    }, delayMs);
+  const res = await request.post("/plan", {
+    data: markdown,
+    headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+  });
+  expect(res.status()).toBe(200);
+  return await res.json();
+}
+
+async function beginDocPoll(sessionId: string) {
+  return fetch(`http://localhost:15032/plan/${sessionId}/poll`, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "curl/8.7.1",
+    },
   });
 }
 
-test.describe("Plan Review", () => {
+test.describe("Doc Review", () => {
   let sessionId: string;
 
   test.beforeAll(async ({ request }) => {
-    const res = await request.post("/plan", {
-      data: PLAN_MARKDOWN,
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    expect(res.status()).toBe(200);
-    const body = await res.json();
+    const body = await createDocSession(request);
     sessionId = body.sessionId;
   });
 
-  test("agent submits plan", async ({ request }) => {
-    const res = await request.post("/plan", {
-      data: "# My Plan\n\nDo things.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body.sessionId).toMatch(
-      /^[A-Za-z0-9_-]{22}$/
-    );
+  test("agent submits doc", async ({ request }) => {
+    const body = await createDocSession(request, "# My Doc\n\nDo things.");
+    expect(body.sessionId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(body.url).toContain(`/s/${body.sessionId}`);
   });
 
-  test("human views plan", async ({ page }) => {
+  test("human views doc", async ({ page }) => {
     await page.goto(`/s/${sessionId}`);
-    await expect(page.locator("text=Architecture Plan").first()).toBeVisible();
+    await expect(page.locator("text=Architecture Doc").first()).toBeVisible();
+    await expect(page.getByText("Doc Review")).toBeVisible();
     await expect(page.locator("button >> text=1").first()).toBeVisible();
+  });
+
+  test("settings persist in localStorage", async ({ page }) => {
+    await page.goto(`/s/${sessionId}`);
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+
+    const checkbox = page.getByLabel("Enable PostHog monitoring");
+    await expect(checkbox).not.toBeChecked();
+    await checkbox.check();
+    await page.getByRole("button", { name: "Close" }).click();
+
+    await page.reload();
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByLabel("Enable PostHog monitoring")).toBeChecked();
   });
 
   test("human posts general comment", async ({ request }) => {
@@ -89,33 +97,49 @@ test.describe("Plan Review", () => {
     expect(thread.messages[0].text).toBe("Can you clarify this?");
   });
 
-  test("agent receives comments after Done", async ({ request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Plan\nLine 1",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
+  test("agent receives comments after Request Revision", async ({ page, request }) => {
+    const { sessionId: id } = await createDocSession(request, "# Doc\nLine 1");
+    await page.goto(`/s/${id}`);
+
+    const pollPromise = beginDocPoll(id);
+    await page.waitForTimeout(150);
 
     await request.post(`/s/${id}/threads`, {
       data: { text: "New feedback" },
     });
-    await request.post(`/s/${id}/done`);
+    await request.post(`/s/${id}/request-revision`);
 
-    const res = await request.get(`/plan/${id}/poll`, {
-      headers: JSON_ACCEPT,
-    });
-    expect(res.status()).toBe(200);
-    const body = await res.json();
+    const pollRes = await pollPromise;
+    expect(pollRes.status).toBe(200);
+    const body = await pollRes.json() as {
+      status: string;
+      threads: Array<{ messages: Array<{ text: string }> }>;
+    };
     expect(body.status).toBe("done");
     expect(body.threads[0].messages[0].text).toBe("New feedback");
   });
 
-  test("poll returns error if the human has not connected", async ({ request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Waiting\nNo browser yet.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+  test("request revision copies feedback if agent is not polling", async ({ request }) => {
+    const { sessionId: id } = await createDocSession(request, "# Waiting\nNo poll yet.");
+    await request.post(`/s/${id}/threads`, {
+      data: { text: "Please revise the summary." },
     });
-    const { sessionId: id, url } = await planRes.json();
+
+    const res = await request.post(`/s/${id}/request-revision`, {
+      headers: JSON_ACCEPT,
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.state).toBe("agent_not_polling");
+    expect(body.message).toContain("Agent is not polling");
+    expect(body.clipboardText).toContain("Please revise the summary.");
+    expect(body.clipboardText).toContain(`/plan/${id}/update`);
+    expect(body.clipboardText).toContain(`poll again with \`curl -s http://localhost:15032/plan/${id}/poll\`.`);
+  });
+
+  test("poll returns error if the human has not connected", async ({ request }) => {
+    const { sessionId: id, url } = await createDocSession(request, "# Waiting\nNo browser yet.");
 
     const res = await request.get(`/plan/${id}/poll`, {
       headers: JSON_ACCEPT,
@@ -131,21 +155,12 @@ test.describe("Plan Review", () => {
   });
 
   test("poll returns error after the human disconnects for 5 seconds", async ({ page, request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Waiting\nDisconnect test.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
+    const { sessionId: id } = await createDocSession(request, "# Waiting\nDisconnect test.");
 
     await page.goto(`/s/${id}`);
-    await expect(page.getByText("Plan Review")).toBeVisible();
+    await expect(page.getByText("Doc Review")).toBeVisible();
 
-    const pollPromise = fetch(`http://localhost:15032/plan/${id}/poll`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "curl/8.7.1",
-      },
-    });
+    const pollPromise = beginDocPoll(id);
 
     await page.waitForTimeout(250);
     await page.close();
@@ -171,98 +186,153 @@ test.describe("Plan Review", () => {
     expect(text).toContain(`xdg-open "http://localhost:15032/s/${sessionId}"`);
   });
 
-  test("poll waits for Done, not individual comments", async ({ page, request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Wait Test\nContent.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
+  test("poll waits for Request Revision, not individual comments", async ({ page, request }) => {
+    const { sessionId: id } = await createDocSession(request, "# Wait Test\nContent.");
     await page.goto(`/s/${id}`);
 
-    // Post comment and then Done after a delay
-    setTimeout(async () => {
-      await request.post(`/s/${id}/threads`, { data: { text: "Feedback" } });
-      await request.post(`/s/${id}/done`);
-    }, 100);
+    const pollPromise = beginDocPoll(id);
+    await page.waitForTimeout(150);
 
-    const res = await request.get(`/plan/${id}/poll`, {
-      headers: JSON_ACCEPT,
-      timeout: 10000,
-    });
-    const body = await res.json();
+    await request.post(`/s/${id}/threads`, { data: { text: "Feedback" } });
+    await page.waitForTimeout(150);
+
+    await request.post(`/s/${id}/request-revision`);
+
+    const pollRes = await pollPromise;
+    const body = await pollRes.json() as {
+      status: string;
+      threads: Array<{ messages: Array<{ text: string }> }>;
+    };
     expect(body.status).toBe("done");
     expect(body.threads[0].messages[0].text).toBe("Feedback");
   });
 
-  test("comments posted before done are not lost", async ({ request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Plan\nContent.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
+  test("comments posted before Request Revision are not lost", async ({ page, request }) => {
+    const { sessionId: id } = await createDocSession(request, "# Doc\nContent.");
+    await page.goto(`/s/${id}`);
 
-    // Human posts comment then immediately clicks Done
     await request.post(`/s/${id}/threads`, {
       data: { text: "Last-minute feedback" },
     });
-    await request.post(`/s/${id}/done`);
 
-    // Agent polls — should get both the comment AND done status
-    const res = await request.get(`/plan/${id}/poll`, {
-      headers: JSON_ACCEPT,
-    });
-    const body = await res.json();
+    const pollPromise = beginDocPoll(id);
+    await page.waitForTimeout(150);
+    await request.post(`/s/${id}/request-revision`);
+
+    const pollRes = await pollPromise;
+    const body = await pollRes.json();
     expect(body.status).toBe("done");
     expect(body.threads).toHaveLength(1);
     expect(body.threads[0].messages[0].text).toBe("Last-minute feedback");
   });
 
-  test("poll markdown includes context lines around line comments", async ({ request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Plan\nLine one.\nLine two.\nLine three.\nLine four.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
+  test("poll markdown includes context lines around line comments", async ({ page, request }) => {
+    const { sessionId: id } = await createDocSession(
+      request,
+      "# Doc\nLine one.\nLine two.\nLine three.\nLine four."
+    );
+    await page.goto(`/s/${id}`);
 
     await request.post(`/s/${id}/threads`, {
       data: { line: 3, text: "Fix this line" },
     });
-    await request.post(`/s/${id}/done`);
 
-    const res = await request.get(`/plan/${id}/poll`);
-    const text = await res.text();
-    // Should contain the comment number and location
+    const pollPromise = fetch(`http://localhost:15032/plan/${id}/poll`);
+    await page.waitForTimeout(150);
+    await request.post(`/s/${id}/request-revision`);
+
+    const pollRes = await pollPromise;
+    const text = await pollRes.text();
     expect(text).toContain("#1 (L3)");
-    // Should contain the target line with > marker
     expect(text).toContain("> ");
     expect(text).toContain("Line two.");
-    // Should contain surrounding context
     expect(text).toContain("Line one.");
     expect(text).toContain("Line three.");
-    // Should contain the comment text
     expect(text).toContain("Fix this line");
   });
 
-  test("reopening done session shows content with buttons disabled", async ({ page, request }) => {
-    const planRes = await request.post("/plan", {
-      data: "# Done Plan\nReview this.",
-      headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
-    });
-    const { sessionId: id } = await planRes.json();
-
-    await request.post(`/s/${id}/threads`, { data: { text: "Looks great" } });
-    await request.post(`/s/${id}/done`);
-
+  test("processing state is shown until the agent updates the doc", async ({ page, request }) => {
+    const { sessionId: id } = await createDocSession(request, "# Original Doc\n\nReview this.");
     await page.goto(`/s/${id}`);
-    // Content is visible
-    await expect(page.locator("text=Done Plan")).toBeVisible();
-    // Comment is visible
-    await expect(page.locator("text=#1")).toBeVisible();
-    await expect(page.locator("text=Looks great")).toBeVisible();
-    // Done notice shown, buttons gone
-    await expect(page.locator("text=Waiting for the agent to update this session.")).toBeVisible();
-    await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
-    await expect(page.locator("button", { hasText: "Comment" })).not.toBeVisible();
+
+    const pollPromise = beginDocPoll(id);
+    await page.waitForTimeout(150);
+
+    await request.post(`/s/${id}/threads`, { data: { text: "Rewrite the intro" } });
+    await page.getByRole("button", { name: "Request Revision" }).click();
+
+    const pollRes = await pollPromise;
+    expect(pollRes.status).toBe(200);
+
+    await expect(page.getByText("Agent processing feedback...")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Request Revision" })).not.toBeVisible();
+
+    const updateRes = await request.post(`/plan/${id}/update`, {
+      headers: JSON_ACCEPT,
+      multipart: {
+        markdown: "# Updated Doc\n\nFresh revision.",
+        response: "Updated the introduction and tightened the structure.",
+      },
+    });
+    expect(updateRes.status()).toBe(200);
+
+    await expect(page.locator("text=Updated Doc")).toBeVisible();
+    await expect(page.locator("text=Updated the introduction and tightened the structure.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Request Revision" })).toBeVisible();
+  });
+
+  test("processing state can copy feedback for manual fallback", async ({ page, context, request }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const { sessionId: id } = await createDocSession(request, "# Original Doc\n\nReview this.");
+    await page.goto(`/s/${id}`);
+
+    const pollPromise = beginDocPoll(id);
+    await page.waitForTimeout(150);
+
+    await request.post(`/s/${id}/threads`, { data: { text: "Rewrite the intro" } });
+    await page.getByRole("button", { name: "Request Revision" }).click();
+
+    const pollRes = await pollPromise;
+    expect(pollRes.status).toBe(200);
+
+    await page.getByRole("button", { name: "Copy Feedback Instead" }).click();
+    await expect(page.getByText("Feedback copied to the clipboard.")).toBeVisible();
+
+    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardText).toContain("Rewrite the intro");
+    expect(clipboardText).toContain(`/plan/${id}/update`);
+    expect(clipboardText).toContain(`poll again with \`curl -s http://localhost:15032/plan/${id}/poll\`.`);
+  });
+
+  test("updated doc only returns new human comments on the next request", async ({ page, request }) => {
+    const { sessionId: id } = await createDocSession(request, "# Version 1");
+    await page.goto(`/s/${id}`);
+
+    await request.post(`/s/${id}/threads`, { data: { text: "Old comment" } });
+    const firstPoll = beginDocPoll(id);
+    await page.waitForTimeout(150);
+    await request.post(`/s/${id}/request-revision`);
+    const firstBody = await (await firstPoll).json() as {
+      threads: Array<{ messages: Array<{ text: string }> }>;
+    };
+    expect(firstBody.threads).toHaveLength(1);
+    expect(firstBody.threads[0].messages[0].text).toBe("Old comment");
+
+    await request.post(`/plan/${id}/update`, {
+      headers: JSON_ACCEPT,
+      multipart: { markdown: "# Version 2" },
+    });
+    await expect(page.locator("text=Version 2")).toBeVisible();
+
+    await request.post(`/s/${id}/threads`, { data: { text: "New comment" } });
+    const secondPoll = beginDocPoll(id);
+    await page.waitForTimeout(150);
+    await request.post(`/s/${id}/request-revision`);
+    const secondBody = await (await secondPoll).json() as {
+      threads: Array<{ messages: Array<{ text: string }> }>;
+    };
+    expect(secondBody.threads).toHaveLength(1);
+    expect(secondBody.threads[0].messages[0].text).toBe("New comment");
   });
 
   test("plan endpoint returns markdown by default", async ({ request }) => {
@@ -273,7 +343,7 @@ test.describe("Plan Review", () => {
 
     expect(res.status()).toBe(200);
     expect(res.headers()["content-type"]).toContain("text/markdown");
-    await expect(res.text()).resolves.toContain("# Plan Review Session");
+    await expect(res.text()).resolves.toContain("# Doc Review Session");
   });
 
   test("404 for nonexistent session page", async ({ page }) => {

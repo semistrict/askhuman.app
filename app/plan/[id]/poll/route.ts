@@ -1,10 +1,9 @@
 import {
-  pollComments,
-  REST_POLL_TIMEOUT_MS,
   withTrackedAgentLongPoll,
 } from "@/lib/hitl";
 import { negotiatedResponse, pollMarkdown, type ContentContext } from "@/lib/rest-response";
 import { SessionDO } from "@/worker/session";
+import { pollDocReview } from "@/lib/plan-review";
 
 export async function GET(
   request: Request,
@@ -13,7 +12,7 @@ export async function GET(
   const { id } = await params;
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
   const result = await withTrackedAgentLongPoll(request, id, "plan_poll", () =>
-    pollComments(id, REST_POLL_TIMEOUT_MS, baseUrl)
+    pollDocReview(id, baseUrl)
   );
 
   let context: ContentContext | undefined;

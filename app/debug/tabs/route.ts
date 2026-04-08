@@ -1,8 +1,8 @@
-import { DebugIndexDO } from "@/worker/debug-index";
-import { debugTabsMarkdown, negotiatedResponse } from "@/lib/rest-response";
+import { errorMarkdown, negotiatedResponse } from "@/lib/rest-response";
 
 export async function GET(request: Request) {
-  const tabs = await DebugIndexDO.getInstance().listConnectedTabs();
-  const result = { tabs };
-  return negotiatedResponse(request, result, debugTabsMarkdown(result));
+  const payload = {
+    error: "Global debug tab listing is disabled. Use /s/{sessionId}/debug/tabs instead.",
+  };
+  return negotiatedResponse(request, payload, errorMarkdown(payload.error), { status: 410 });
 }

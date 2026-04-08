@@ -20,6 +20,10 @@ function reviewUrl(baseUrl: string, sessionId: string): string {
   return `${baseUrl}/s/${sessionId}`;
 }
 
+function updateUrl(baseUrl: string, sessionId: string): string {
+  return `${baseUrl}/plan/${sessionId}/update`;
+}
+
 function pollUrl(baseUrl: string, sessionId: string, prefix: string): string {
   return `${baseUrl}/${prefix}/${sessionId}/poll`;
 }
@@ -51,9 +55,32 @@ function formatReplyCurl(
 }
 
 function changePickupReminder(prefix: string, _baseUrl: string, _sessionId: string): string {
+  if (prefix === "plan") return "";
   if (prefix === "diff") return msg("plan_change_pickup_diff");
   if (prefix === "files") return msg("plan_change_pickup_files");
   return msg("plan_change_pickup_generic");
+}
+
+function doneMessage(prefix: string, baseUrl: string, sessionId: string): string {
+  if (prefix === "plan") {
+    return msg("doc_done", { UPDATE_URL: updateUrl(baseUrl, sessionId) });
+  }
+  return msg("plan_done");
+}
+
+function timeoutMessage(prefix: string): string {
+  if (prefix === "plan") return msg("doc_timeout");
+  return msg("plan_timeout");
+}
+
+function commentsMessage(prefix: string, baseUrl: string, sessionId: string): string {
+  if (prefix === "plan") {
+    return msg("doc_comments", { UPDATE_URL: updateUrl(baseUrl, sessionId) });
+  }
+  return [
+    msg("plan_comments"),
+    changePickupReminder(prefix, baseUrl, sessionId),
+  ].filter(Boolean).join(" ");
 }
 
 function appendMessage(message: string | undefined, extra: string): string {
@@ -105,7 +132,7 @@ export function formatPollResponse(
     return {
       status: "done" as PollStatus,
       threads: result.threads,
-      message: msg("plan_done"),
+      message: doneMessage(prefix, baseUrl, sessionId),
     };
   }
 
@@ -113,7 +140,7 @@ export function formatPollResponse(
     return {
       status: "timeout" as PollStatus,
       threads: [] as Thread[],
-      message: msg("plan_timeout"),
+      message: timeoutMessage(prefix),
       next: `curl -s ${pollUrl(baseUrl, sessionId, prefix)}`,
     };
   }
@@ -121,11 +148,7 @@ export function formatPollResponse(
   return {
     status: "comments" as PollStatus,
     threads: result.threads,
-    message:
-      [
-        msg("plan_comments"),
-        changePickupReminder(prefix, baseUrl, sessionId),
-      ].filter(Boolean).join(" "),
+    message: commentsMessage(prefix, baseUrl, sessionId),
   };
 }
 

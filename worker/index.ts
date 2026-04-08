@@ -10,7 +10,6 @@ import type { ImageConfig } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 
 export { SessionDO } from "./session";
-export { DebugIndexDO } from "./debug-index";
 
 async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
@@ -20,9 +19,9 @@ async function handleRootPlain(request: Request): Promise<Response> {
 Human-in-the-loop review tools for AI agents.
 Submit via curl, open the URL for the user, and poll for the completed review.
 
-## Plan review
+## Doc review
 
-  curl -s --data-binary @plan.md ${base}/plan
+  curl -s --data-binary @doc.md ${base}/plan
 
 ## Diff review
 
@@ -43,126 +42,13 @@ Submit via curl, open the URL for the user, and poll for the completed review.
 
 Each response includes a sessionId, a review URL, and polling instructions.
 Open the URL for the same user you are already interacting with.
-Poll with GET .../{id}/poll -- returns when the user clicks Done.
+Poll with GET .../{id}/poll -- doc review returns when the user clicks Request Revision; other flows return when they click Done.
 `;
 
   return new Response(text.endsWith("\n") ? text : `${text}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
-
-function handleRootHtml(): Response {
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>askhuman.app</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'JetBrains Mono', monospace;
-    background: #0c0c0c;
-    color: #b0aca6;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-  }
-  .page { max-width: 560px; width: 100%; }
-  h1 { font-size: 2.5rem; color: #e8e4e0; letter-spacing: -0.04em; margin-bottom: 1.5rem; }
-  h1 span { font-weight: 400; color: #6b6560; }
-  .cmd {
-    background: #1a1816;
-    border: 1px solid #2a2724;
-    border-radius: 6px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 0.75rem;
-    position: relative;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-  .cmd:hover { border-color: #4a4540; }
-  .cmd pre {
-    font-family: inherit; font-size: 0.8125rem;
-    line-height: 1.6; white-space: pre-wrap; word-break: break-all;
-  }
-  .cmd .label {
-    font-size: 0.6875rem; color: #6b6560;
-    margin-bottom: 0.375rem;
-    text-transform: uppercase; letter-spacing: 0.05em;
-  }
-  .cmd .copy {
-    position: absolute; top: 0.75rem; right: 0.75rem;
-    font-size: 0.6875rem; color: #6b6560;
-    opacity: 0; transition: opacity 0.15s; pointer-events: none;
-  }
-  .cmd:hover .copy { opacity: 1; }
-  .cmd.copied .copy { color: #7a9f6a; }
-  .note {
-    font-size: 0.6875rem; color: #6b6560;
-    margin-top: -0.25rem; margin-bottom: 1.25rem;
-  }
-  .or {
-    text-align: center; font-size: 0.6875rem; color: #4a4540;
-    margin: 1rem 0;
-    display: flex; align-items: center; gap: 1rem;
-  }
-  .or::before, .or::after {
-    content: ''; flex: 1; height: 1px; background: #2a2724;
-  }
-  .links {
-    font-size: 0.75rem; display: flex; gap: 1.25rem;
-    margin-top: 1.5rem; padding-top: 1.25rem;
-    border-top: 1px solid #2a2724;
-  }
-  a { color: #8a8580; text-decoration: underline; text-underline-offset: 2px; transition: color 0.15s; }
-  a:hover { color: #e8e4e0; }
-</style>
-</head>
-<body>
-<div class="page">
-  <h1>askhuman<span>.app</span></h1>
-
-  <div class="cmd" onclick="copyCmd(this, 'npx skills add semistrict/askhuman.app')">
-    <div class="label">Install skill</div>
-    <pre>npx skills add semistrict/askhuman.app</pre>
-    <span class="copy">copy</span>
-  </div>
-
-  <div class="or">or</div>
-
-  <div class="cmd" onclick="copyCmd(this, 'claude &quot;$(curl -s https://askhuman.app) -- review my current diff&quot;')">
-    <div class="label">Prompt-inject yourself</div>
-    <pre>claude "$(curl -s https://askhuman.app) -- review my current diff"</pre>
-    <span class="copy">copy</span>
-  </div>
-  <p class="note">Works with any agent that accepts a prompt string.</p>
-
-  <div class="links">
-    <a href="https://github.com/semistrict/askhuman.app">github</a>
-    <a href="/llms.txt">llms.txt</a>
-  </div>
-</div>
-<script>
-function copyCmd(el, text) {
-  navigator.clipboard.writeText(text.replace(/\\\\n/g, '\\n'));
-  var span = el.querySelector('.copy');
-  span.textContent = 'copied';
-  el.classList.add('copied');
-  setTimeout(() => { el.classList.remove('copied'); span.textContent = 'copy'; }, 1500);
-}
-</script>
-</body>
-</html>`;
-
-  return new Response(html, {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
-}
-
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -179,7 +65,6 @@ interface Env {
     };
   };
   SESSION: DurableObjectNamespace;
-  DEBUG_INDEX: DurableObjectNamespace;
 }
 
 // Image security config. SVG sources with .svg extension auto-skip the
@@ -212,7 +97,6 @@ export default {
       if (/^curl\//i.test(ua)) {
         return handleRootPlain(request);
       }
-      return handleRootHtml();
     }
 
     // Delegate everything else to vinext, forwarding ctx so that

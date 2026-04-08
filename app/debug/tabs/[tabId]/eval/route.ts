@@ -1,63 +1,14 @@
-import { DebugIndexDO } from "@/worker/debug-index";
-import { SessionDO } from "@/worker/session";
-import {
-  debugEvalMarkdown,
-  errorMarkdown,
-  negotiatedResponse,
-} from "@/lib/rest-response";
-
-const DEBUG_EVAL_TIMEOUT_MS = 30_000;
+import { errorMarkdown, negotiatedResponse } from "@/lib/rest-response";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ tabId: string }> }
 ) {
-  const { tabId } = await params;
-  const code = await request.text();
-  if (!code.trim()) {
-    const payload = { error: "POST raw JavaScript in the request body." };
-    return negotiatedResponse(
-      request,
-      payload,
-      errorMarkdown(payload.error),
-      { status: 400 }
-    );
-  }
-
-  const tab = await DebugIndexDO.getInstance().getTab(tabId);
-  if (!tab || !tab.connected) {
-    const payload = { error: `Connected tab ${tabId} was not found.` };
-    return negotiatedResponse(
-      request,
-      payload,
-      errorMarkdown(payload.error),
-      { status: 404 }
-    );
-  }
-
-  try {
-    const result = await SessionDO.getInstance(tab.sessionId).debugEvalTab(
-      tabId,
-      code,
-      DEBUG_EVAL_TIMEOUT_MS
-    );
-    const payload = {
-      tabId,
-      sessionId: tab.sessionId,
-      ...result,
-    };
-    return negotiatedResponse(request, payload, debugEvalMarkdown(payload));
-  } catch (error) {
-    const payload = {
-      error: error instanceof Error ? error.message : String(error),
-    };
-    return negotiatedResponse(
-      request,
-      payload,
-      errorMarkdown(payload.error),
-      { status: 409 }
-    );
-  }
+  await params;
+  const payload = {
+    error: "Global debug eval is disabled. Use /s/{sessionId}/debug/tabs/{tabId}/eval instead.",
+  };
+  return negotiatedResponse(request, payload, errorMarkdown(payload.error), { status: 410 });
 }
 
 export async function GET(
@@ -66,7 +17,7 @@ export async function GET(
 ) {
   const { tabId } = await params;
   const payload = {
-    error: `POST raw JavaScript to /debug/tabs/${tabId}/eval`,
+    error: `POST raw JavaScript to /s/{sessionId}/debug/tabs/${tabId}/eval`,
   };
   return negotiatedResponse(
     request,

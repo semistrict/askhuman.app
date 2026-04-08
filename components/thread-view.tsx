@@ -22,6 +22,9 @@ export function ThreadView({
         <span className="text-[10px] font-mono font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0 mt-0.5">
           #{commentNumber}
         </span>
+        <span className="text-[10px] font-mono uppercase text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+          {firstMessage.role}
+        </span>
         {outdated && (
           <Badge variant="outline" className="text-[10px] shrink-0 mt-0.5 text-muted-foreground">
             outdated

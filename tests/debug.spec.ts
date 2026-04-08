@@ -18,16 +18,14 @@ test.describe("Debug Endpoints", () => {
   }) => {
     const { sessionId } = await createPlanSession(request);
     await page.goto(`/s/${sessionId}`);
-    await expect(page.getByText("Plan Review")).toBeVisible();
+    await expect(page.getByText("Doc Review")).toBeVisible();
 
     let tabId: string | null = null;
     for (let attempt = 0; attempt < 20; attempt++) {
-      const listRes = await request.get("/debug/tabs", { headers: JSON_ACCEPT });
+      const listRes = await request.get(`/s/${sessionId}/debug/tabs`, { headers: JSON_ACCEPT });
       expect(listRes.status()).toBe(200);
       const body = await listRes.json();
-      const match = (body.tabs as Array<{ tabId: string; sessionId: string }>).find(
-        (tab) => tab.sessionId === sessionId
-      );
+      const match = (body.tabs as Array<{ tabId: string; sessionId: string }>)[0];
       if (match) {
         tabId = match.tabId;
         break;
@@ -37,7 +35,7 @@ test.describe("Debug Endpoints", () => {
 
     expect(tabId).toBeTruthy();
 
-    const evalRes = await request.post(`/debug/tabs/${tabId}/eval`, {
+    const evalRes = await request.post(`/s/${sessionId}/debug/tabs/${tabId}/eval`, {
       data: `
 return {
   title: document.title,
@@ -52,7 +50,7 @@ return {
     const result = await evalRes.json();
     expect(result.ok).toBe(true);
     expect(result.sessionId).toBe(sessionId);
-    expect(result.result.heading).toBe("Plan Review");
+    expect(result.result.heading).toBe("Doc Review");
     expect(result.result.path).toBe(`/s/${sessionId}`);
     expect(result.result.hasCommentButton).toBe(true);
   });
@@ -70,17 +68,15 @@ return {
 
     let agentId: string | null = null;
     for (let attempt = 0; attempt < 30; attempt++) {
-      const listRes = await request.get("/debug/agents", { headers: JSON_ACCEPT });
+      const listRes = await request.get(`/s/${sessionId}/debug/agents`, { headers: JSON_ACCEPT });
       expect(listRes.status()).toBe(200);
       const body = await listRes.json();
-      const match = (
-        body.agents as Array<{
-          agentId: string;
-          sessionId: string;
-          kind: string;
-          endpoint: string;
-        }>
-      ).find((agent) => agent.sessionId === sessionId && agent.kind === "plan_poll");
+      const match = (body.agents as Array<{
+        agentId: string;
+        sessionId: string;
+        kind: string;
+        endpoint: string;
+      }>).find((agent) => agent.kind === "plan_poll");
       if (match) {
         agentId = match.agentId;
         expect(match.endpoint).toBe(`/plan/${sessionId}/poll`);
@@ -95,7 +91,7 @@ return {
     expect(pollRes.status).toBe(200);
 
     for (let attempt = 0; attempt < 20; attempt++) {
-      const listRes = await request.get("/debug/agents", { headers: JSON_ACCEPT });
+      const listRes = await request.get(`/s/${sessionId}/debug/agents`, { headers: JSON_ACCEPT });
       const body = await listRes.json();
       const stillConnected = (
         body.agents as Array<{ agentId: string }>

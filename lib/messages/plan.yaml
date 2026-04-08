@@ -4,9 +4,15 @@ plan_instructions: |-
      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{URL}" &
     Or fall back to: open "{URL}" / xdg-open "{URL}"
     Or just show the URL to the user (they cannot see this text).
-  - Poll for the completed review (returns when they click Done):
+  - Poll for feedback (returns when the reviewer clicks Request Revision):
      curl -s {POLL_URL}
-  - When the review is returned, address each numbered comment.
+  - When feedback is returned, address each numbered comment and submit the updated doc:
+     curl -s -X POST {UPDATE_URL} \
+       -F "markdown=<doc.md"
+  - To include a general response for the reviewer on update:
+     curl -s -X POST {UPDATE_URL} \
+       -F "markdown=<doc.md" \
+       -F 'response=Addressed the requested revisions.'
 
 plan_comments: >-
   Review complete. Address each numbered comment below.
@@ -31,3 +37,38 @@ plan_change_pickup_generic: >-
   If you make code changes in response to these comments, make sure the same
   user can review the updated result. Update this session or start a fresh
   review session with the new material when needed.
+
+doc_comments: >-
+  Feedback is ready. Address each numbered comment below, then submit the
+  updated doc to {UPDATE_URL}.
+
+doc_timeout: >-
+  No revision request yet. The human may still be reviewing. Poll again.
+
+doc_done: |-
+  Feedback is ready. Address each numbered comment below, then submit the
+  updated doc:
+    curl -s -X POST {UPDATE_URL} \
+      -F "markdown=<doc.md"
+
+  To include a general response for the reviewer:
+    curl -s -X POST {UPDATE_URL} \
+      -F "markdown=<doc.md" \
+      -F 'response=Addressed the requested revisions.'
+
+doc_processing: >-
+  Agent processing feedback...
+
+doc_review_complete: >-
+  Review complete. No further revisions requested.
+
+doc_agent_not_polling: >-
+  Agent is not polling. The current feedback will be copied to the clipboard
+  so you can paste it into the agent manually.
+
+doc_updated: >-
+  Doc updated. The reviewer can comment on the new revision.
+
+doc_update_missing_markdown: >-
+  Missing updated markdown. Submit the revised doc as the request body or as a
+  multipart field named "markdown".

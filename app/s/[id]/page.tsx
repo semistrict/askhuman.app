@@ -73,7 +73,7 @@ export default async function SessionPage({
       sessionId={id}
       planLines={lines}
       initialThreads={threads}
-      isDone={isDone}
+      isProcessing={isDone}
     />
   );
 }
