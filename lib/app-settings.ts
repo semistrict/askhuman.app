@@ -4,10 +4,12 @@ export const APP_SETTINGS_OPEN_EVENT = "askhuman:settings-open";
 
 export type AppSettings = {
   enablePostHogMonitoring: boolean;
+  userName: string;
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   enablePostHogMonitoring: false,
+  userName: "",
 };
 
 export function parseAppSettings(raw: string | null | undefined): AppSettings {
@@ -17,6 +19,7 @@ export function parseAppSettings(raw: string | null | undefined): AppSettings {
     const parsed = JSON.parse(raw) as Partial<AppSettings> | null;
     return {
       enablePostHogMonitoring: parsed?.enablePostHogMonitoring === true,
+      userName: typeof parsed?.userName === "string" ? parsed.userName : "",
     };
   } catch {
     return DEFAULT_APP_SETTINGS;

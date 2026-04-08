@@ -10,6 +10,7 @@ test.describe("Root Page", () => {
     await page.getByRole("link", { name: "settings" }).click();
     await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
 
+    await page.getByLabel("Your name").fill("Ramon");
     const toggle = page.getByLabel("Enable PostHog monitoring");
     await expect(toggle).not.toBeChecked();
     await toggle.check();
@@ -17,6 +18,7 @@ test.describe("Root Page", () => {
 
     await page.reload();
     await page.getByRole("link", { name: "settings" }).click();
+    await expect(page.getByLabel("Your name")).toHaveValue("Ramon");
     await expect(page.getByLabel("Enable PostHog monitoring")).toBeChecked();
   });
 });

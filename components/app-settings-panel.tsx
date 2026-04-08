@@ -201,6 +201,28 @@ export function AppSettingsPanel() {
             </div>
 
             <div className="mt-5 rounded-lg border border-border bg-card p-4">
+              <div className="mb-4 space-y-2">
+                <label htmlFor="settings-user-name" className="text-sm font-medium">
+                  Your name
+                </label>
+                <input
+                  id="settings-user-name"
+                  type="text"
+                  value={settings.userName}
+                  onChange={(event) =>
+                    updateSettings({
+                      ...settings,
+                      userName: event.target.value,
+                    })
+                  }
+                  placeholder="Optional"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Stored locally so the app can refer to you by name later.
+                </p>
+              </div>
+
               <label className="flex items-start gap-3">
                 <input
                   type="checkbox"

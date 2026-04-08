@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { createCompactId } from "@/lib/compact-id";
 
 const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const SESSION_INACTIVITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface Thread {
   id: number;
@@ -292,6 +293,19 @@ export class SessionDO extends DurableObject {
 
   }
 
+  private async touchSession(): Promise<void> {
+    await this.ctx.storage.setAlarm(Date.now() + SESSION_INACTIVITY_TTL_MS);
+  }
+
+  async alarm(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+    this.waiters = [];
+    this.activityWaiters = [];
+    this.connectionWaiters = [];
+    this.presenceWaiters = [];
+    this.debugEvalWaiters.clear();
+  }
+
   private getSessionId(): string | null {
     const rows = this.ctx.storage.sql.exec<{ value: string }>(
       "SELECT value FROM state WHERE key = 'session_id'"
@@ -321,6 +335,7 @@ export class SessionDO extends DurableObject {
     sessionId: string,
     patch: Partial<Omit<ConnectedTab, "tabId" | "sessionId">> = {}
   ) {
+    await this.touchSession();
     const now = patch.lastSeenAt ?? Date.now();
     const existing = this.ctx.storage.sql.exec<{
       url: string | null;
@@ -369,6 +384,7 @@ export class SessionDO extends DurableObject {
   }
 
   private async markTabDisconnected(tabId: string) {
+    await this.touchSession();
     this.ctx.storage.sql.exec(
       "UPDATE tabs SET connected = 0, last_seen_at = ? WHERE tab_id = ?",
       Date.now(),
@@ -420,6 +436,7 @@ export class SessionDO extends DurableObject {
     kind: string;
     userAgent: string | null;
   }): Promise<string> {
+    await this.touchSession();
     this.rememberSessionId(input.sessionId);
     const agentId = createCompactId();
     const now = Date.now();
@@ -439,6 +456,7 @@ export class SessionDO extends DurableObject {
   }
 
   async endAgentConnection(agentId: string): Promise<void> {
+    await this.touchSession();
     this.ctx.storage.sql.exec(
       "UPDATE agents SET connected = 0, last_seen_at = ? WHERE agent_id = ?",
       Date.now(),
@@ -549,10 +567,12 @@ export class SessionDO extends DurableObject {
   }
 
   async markDone(): Promise<void> {
+    await this.touchSession();
     await this.finalizeSessionDone();
   }
 
   async setDocReviewState(state: "ready" | "processing" | "complete"): Promise<void> {
+    await this.touchSession();
     const value = state === "processing" ? 1 : state === "complete" ? 2 : 0;
     this.ctx.storage.sql.exec(
       "INSERT INTO state (key, value) VALUES ('doc_review_state', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -571,6 +591,7 @@ export class SessionDO extends DurableObject {
   }
 
   async completeDocReview(): Promise<void> {
+    await this.touchSession();
     await this.setDocReviewState("complete");
     await this.finalizeSessionDone();
   }
@@ -591,6 +612,7 @@ export class SessionDO extends DurableObject {
   }
 
   async setContent(content: string): Promise<void> {
+    await this.touchSession();
     const sql = this.ctx.storage.sql;
     sql.exec("DELETE FROM plan");
     sql.exec("INSERT INTO plan (markdown, created_at) VALUES (?, ?)", content, Date.now());
@@ -605,6 +627,7 @@ export class SessionDO extends DurableObject {
   }
 
   async setContentType(type: "plan" | "diff" | "files" | "playground"): Promise<void> {
+    await this.touchSession();
     const value = type === "diff" ? 1 : type === "files" ? 2 : type === "playground" ? 3 : 0;
     this.ctx.storage.sql.exec(
       "INSERT INTO state (key, value) VALUES ('content_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -624,6 +647,7 @@ export class SessionDO extends DurableObject {
   }
 
   async setResult(text: string): Promise<void> {
+    await this.touchSession();
     this.ctx.storage.sql.exec(
       "INSERT INTO text_state (key, value) VALUES ('result', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       text
@@ -638,6 +662,7 @@ export class SessionDO extends DurableObject {
   }
 
   async setDescription(text: string): Promise<void> {
+    await this.touchSession();
     this.ctx.storage.sql.exec(
       "INSERT INTO text_state (key, value) VALUES ('description', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       text
@@ -685,6 +710,7 @@ export class SessionDO extends DurableObject {
   }
 
   async replaceFiles(files: { path: string; content: string }[]): Promise<void> {
+    await this.touchSession();
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     sql.exec("DELETE FROM files");
@@ -704,6 +730,7 @@ export class SessionDO extends DurableObject {
   }
 
   async markOutdatedFileThreads(currentPaths: Set<string>): Promise<void> {
+    await this.touchSession();
     // Mark threads whose file_path is not in the current set as outdated
     this.ctx.storage.sql.exec(
       "UPDATE threads SET outdated = 1 WHERE file_path IS NOT NULL AND hunk_id IS NULL AND file_path NOT IN (SELECT value FROM json_each(?))",
@@ -717,6 +744,7 @@ export class SessionDO extends DurableObject {
   }
 
   async markOutdatedDocThreads(): Promise<void> {
+    await this.touchSession();
     this.ctx.storage.sql.exec(
       "UPDATE threads SET outdated = 1 WHERE hunk_id IS NULL AND file_path IS NULL"
     );
@@ -729,6 +757,7 @@ export class SessionDO extends DurableObject {
     hunkId?: string | null,
     filePath?: string | null
   ): Promise<Thread> {
+    await this.touchSession();
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     if (role === "human") {
@@ -774,12 +803,14 @@ export class SessionDO extends DurableObject {
   }
 
   async resetDone(): Promise<void> {
+    await this.touchSession();
     this.ctx.storage.sql.exec(
       "DELETE FROM state WHERE key = 'done'"
     );
   }
 
   async addMessage(threadId: number, role: string, text: string): Promise<Message> {
+    await this.touchSession();
     const sql = this.ctx.storage.sql;
     const now = Date.now();
 
@@ -811,6 +842,7 @@ export class SessionDO extends DurableObject {
   }
 
   async replaceHunks(hunks: StoredHunkInput[]) {
+    await this.touchSession();
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     sql.exec("DELETE FROM hunks");
@@ -882,6 +914,7 @@ export class SessionDO extends DurableObject {
   }
 
   async broadcastViewUpdate(): Promise<void> {
+    await this.touchSession();
     this.broadcast({ type: "view" });
   }
 
@@ -1090,6 +1123,7 @@ export class SessionDO extends DurableObject {
     }
 
     this.rememberSessionId(sessionId);
+    await this.touchSession();
 
     const pair = new WebSocketPair();
     const tabId = createCompactId();

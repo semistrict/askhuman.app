@@ -18,11 +18,14 @@ describe("app settings", () => {
     const storage = {
       getItem(key: string) {
         expect(key).toBe(APP_SETTINGS_STORAGE_KEY);
-        return JSON.stringify({ enablePostHogMonitoring: true });
+        return JSON.stringify({ enablePostHogMonitoring: true, userName: "Ramon" });
       },
     };
 
-    expect(readAppSettings(storage)).toEqual({ enablePostHogMonitoring: true });
+    expect(readAppSettings(storage)).toEqual({
+      enablePostHogMonitoring: true,
+      userName: "Ramon",
+    });
   });
 
   it("writes the expected localStorage payload", () => {
@@ -33,12 +36,12 @@ describe("app settings", () => {
       },
     };
 
-    writeAppSettings(storage, { enablePostHogMonitoring: true });
+    writeAppSettings(storage, { enablePostHogMonitoring: true, userName: "Ramon" });
 
     expect(writes).toEqual([
       {
         key: APP_SETTINGS_STORAGE_KEY,
-        value: JSON.stringify({ enablePostHogMonitoring: true }),
+        value: JSON.stringify({ enablePostHogMonitoring: true, userName: "Ramon" }),
       },
     ]);
   });
