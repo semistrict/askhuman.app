@@ -1,0 +1,9 @@
+share_invalid_payload: >-
+  Invalid encrypted share payload. Submit JSON with version, alg, iv,
+  ciphertext, and mac fields.
+
+share_timeout: >-
+  The encrypted document is still open. Poll again.
+
+share_done: >-
+  The human finished reviewing the encrypted document. No further polling needed.

@@ -7,7 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { SessionChrome } from "@/components/session-chrome";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
-import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
+import {
+  bindReviewerPresenceSync,
+  handleDebugSocketMessage,
+  handlePresenceSocketMessage,
+  sendTabHello,
+} from "@/lib/debug-tab-client";
 
 interface Props {
   sessionId: string;
@@ -63,6 +68,7 @@ export function PlaygroundClient({
 
     ws.addEventListener("message", async (event) => {
       const data = JSON.parse(event.data);
+      if (handlePresenceSocketMessage(data)) return;
       if (await handleDebugSocketMessage(ws, data)) return;
       if (data.type === "thread") {
         setThreads((prev) => {
@@ -74,7 +80,11 @@ export function PlaygroundClient({
       }
     });
 
-    return () => ws.close();
+    const cleanupPresenceSync = bindReviewerPresenceSync(ws);
+    return () => {
+      cleanupPresenceSync();
+      ws.close();
+    };
   }, [sessionId]);
 
   const createThread = useCallback(

@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { env } from "cloudflare:workers";
 import { createHash } from "node:crypto";
 import { createCompactId } from "@/lib/compact-id";
+import type { SessionPhase, ToolId } from "@/lib/tools/types";
 
 const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_INACTIVITY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -146,6 +147,7 @@ type TabHelloMessage = {
   title: string;
   userAgent: string;
   reviewerName: string;
+  pageState?: "awaiting_init" | "active";
 };
 
 type DebugEvalResultMessage = {
@@ -349,6 +351,56 @@ export class SessionDO extends DurableObject {
     );
   }
 
+  async initializeBootstrapSession(sessionId: string, toolId: ToolId): Promise<void> {
+    await this.touchSession();
+    this.rememberSessionId(sessionId);
+    await this.setToolId(toolId);
+    await this.setSessionPhase("awaiting_init");
+  }
+
+  async activateSession(): Promise<void> {
+    await this.setSessionPhase("active");
+  }
+
+  async setToolId(toolId: ToolId): Promise<void> {
+    await this.touchSession();
+    const value =
+      toolId === "diff" ? 1 : toolId === "present" ? 2 : toolId === "playground" ? 3 : toolId === "share" ? 4 : 0;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('tool_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  async getToolId(): Promise<ToolId | null> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'tool_id'"
+    ).toArray();
+    if (rows.length === 0) return null;
+    if (rows[0].value === 1) return "diff";
+    if (rows[0].value === 2) return "present";
+    if (rows[0].value === 3) return "playground";
+    if (rows[0].value === 4) return "share";
+    return "review";
+  }
+
+  async setSessionPhase(phase: SessionPhase): Promise<void> {
+    await this.touchSession();
+    const value = phase === "active" ? 1 : 0;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('session_phase', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  async getSessionPhase(): Promise<SessionPhase> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'session_phase'"
+    ).toArray();
+    if (rows.length === 0) return "awaiting_init";
+    return rows[0].value === 1 ? "active" : "awaiting_init";
+  }
+
   private getTabAttachment(ws: WebSocket): TabAttachment | null {
     const attachable = ws as WebSocket & {
       deserializeAttachment?: () => unknown;
@@ -414,6 +466,7 @@ export class SessionDO extends DurableObject {
       record.connected ? 1 : 0
     );
     await this.resolvePresenceWaiters();
+    await this.broadcastPresence();
   }
 
   private async markTabDisconnected(tabId: string) {
@@ -424,6 +477,19 @@ export class SessionDO extends DurableObject {
       tabId
     );
     await this.resolvePresenceWaiters();
+    await this.broadcastPresence();
+  }
+
+  private async broadcastPresence() {
+    const tabs = await this.listConnectedTabs();
+    this.broadcast({
+      type: "presence",
+      tabs: tabs.map((tab) => ({
+        tabId: tab.tabId,
+        reviewerName: tab.reviewerName,
+        connected: tab.connected,
+      })),
+    });
   }
 
   async listConnectedTabs(): Promise<ConnectedTab[]> {
@@ -470,9 +536,23 @@ export class SessionDO extends DurableObject {
     endpoint: string | null;
     kind: string;
     userAgent: string | null;
-  }): Promise<string> {
+  }): Promise<
+    | { ok: true; agentId: string }
+    | { ok: false; status: 409; message: string }
+  > {
     await this.touchSession();
     this.rememberSessionId(input.sessionId);
+    const existing = this.ctx.storage.sql.exec<{ agent_id: string }>(
+      "SELECT agent_id FROM agents WHERE connected = 1 LIMIT 1"
+    ).toArray();
+    if (existing.length > 0) {
+      return {
+        ok: false,
+        status: 409,
+        message:
+          "Another agent is already waiting on this session. Wait for that request to finish before starting a new poll.",
+      };
+    }
     const agentId = createCompactId();
     const now = Date.now();
     this.ctx.storage.sql.exec(
@@ -487,7 +567,7 @@ export class SessionDO extends DurableObject {
       now,
       now
     );
-    return agentId;
+    return { ok: true, agentId };
   }
 
   async endAgentConnection(agentId: string): Promise<void> {
@@ -661,16 +741,17 @@ export class SessionDO extends DurableObject {
     return rows.length > 0 ? { content: rows[0].markdown, created_at: rows[0].created_at } : null;
   }
 
-  async setContentType(type: "plan" | "diff" | "files" | "playground" | "present"): Promise<void> {
+  async setContentType(type: "plan" | "diff" | "files" | "playground" | "present" | "share"): Promise<void> {
     await this.touchSession();
-    const value = type === "diff" ? 1 : type === "files" ? 2 : type === "playground" ? 3 : type === "present" ? 4 : 0;
+    const value =
+      type === "diff" ? 1 : type === "files" ? 2 : type === "playground" ? 3 : type === "present" ? 4 : type === "share" ? 5 : 0;
     this.ctx.storage.sql.exec(
       "INSERT INTO state (key, value) VALUES ('content_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       value
     );
   }
 
-  async getContentType(): Promise<"plan" | "diff" | "files" | "playground" | "present"> {
+  async getContentType(): Promise<"plan" | "diff" | "files" | "playground" | "present" | "share"> {
     const rows = this.ctx.storage.sql.exec<{ value: number }>(
       "SELECT value FROM state WHERE key = 'content_type'"
     ).toArray();
@@ -679,6 +760,7 @@ export class SessionDO extends DurableObject {
     if (rows[0].value === 2) return "files";
     if (rows[0].value === 3) return "playground";
     if (rows[0].value === 4) return "present";
+    if (rows[0].value === 5) return "share";
     return "plan";
   }
 
@@ -1256,6 +1338,13 @@ export class SessionDO extends DurableObject {
         reviewerName: data.reviewerName,
         connected: true,
       });
+      if (data.pageState === "awaiting_init" && (await this.getSessionPhase()) === "active") {
+        try {
+          ws.send(JSON.stringify({ type: "view" }));
+        } catch {
+          // ignore
+        }
+      }
       return;
     }
 

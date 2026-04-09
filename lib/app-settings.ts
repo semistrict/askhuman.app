@@ -1,6 +1,7 @@
 export const APP_SETTINGS_STORAGE_KEY = "askhuman.settings";
 export const APP_SETTINGS_CHANGED_EVENT = "askhuman:settings-changed";
 export const APP_SETTINGS_OPEN_EVENT = "askhuman:settings-open";
+export const APP_SETTINGS_HASH = "#settings";
 
 export type AppSettings = {
   enablePostHogMonitoring: boolean;
@@ -75,6 +76,13 @@ export function writeAppSettings(
   settings: AppSettings
 ): void {
   storage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+export function openAppSettings(target: Window = window): void {
+  if (target.location.hash !== APP_SETTINGS_HASH) {
+    target.location.hash = APP_SETTINGS_HASH;
+  }
+  target.dispatchEvent(new Event(APP_SETTINGS_OPEN_EVENT));
 }
 
 export function getEffectiveReviewerName(settings: AppSettings): string {

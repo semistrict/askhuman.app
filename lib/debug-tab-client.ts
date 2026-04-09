@@ -1,4 +1,8 @@
-import { ensureReviewerPresenceName } from "@/lib/app-settings";
+import {
+  APP_SETTINGS_CHANGED_EVENT,
+  APP_SETTINGS_STORAGE_KEY,
+  ensureReviewerPresenceName,
+} from "@/lib/app-settings";
 
 type DebugEvalMessage = {
   type: "debug_eval";
@@ -20,7 +24,29 @@ type TabHelloMessage = {
   title: string;
   userAgent: string;
   reviewerName: string;
+  pageState?: "awaiting_init" | "active";
 };
+
+type PresenceTab = {
+  tabId: string;
+  reviewerName: string | null;
+  connected: boolean;
+};
+
+type PresenceMessage = {
+  type: "presence";
+  tabs: PresenceTab[];
+};
+
+export const SESSION_PRESENCE_EVENT = "askhuman:session-presence";
+
+function dispatchPresence(tabs: PresenceTab[]) {
+  window.dispatchEvent(new CustomEvent(SESSION_PRESENCE_EVENT, { detail: { tabs } }));
+}
+
+function canSend(ws: WebSocket): boolean {
+  return ws.readyState === WebSocket.OPEN;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]";
@@ -88,15 +114,43 @@ async function executeDebugCode(code: string): Promise<unknown> {
   return await (0, eval)(`(async () => {\n${code}\n})()`);
 }
 
-export function sendTabHello(ws: WebSocket) {
+export function sendTabHello(ws: WebSocket, pageState: "awaiting_init" | "active" = "active") {
+  if (!canSend(ws)) return;
   const payload: TabHelloMessage = {
     type: "tab_hello",
     url: window.location.href,
     title: document.title,
     userAgent: navigator.userAgent,
     reviewerName: ensureReviewerPresenceName(window.localStorage),
+    pageState,
   };
   ws.send(JSON.stringify(payload));
+}
+
+export function bindReviewerPresenceSync(ws: WebSocket): () => void {
+  const sync = () => sendTabHello(ws);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key == null || event.key === APP_SETTINGS_STORAGE_KEY) {
+      sync();
+    }
+  };
+
+  window.addEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, sync);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export function handlePresenceSocketMessage(data: unknown): boolean {
+  if (!data || typeof data !== "object" || (data as { type?: string }).type !== "presence") {
+    return false;
+  }
+
+  const message = data as PresenceMessage;
+  dispatchPresence(Array.isArray(message.tabs) ? message.tabs : []);
+  return true;
 }
 
 export async function handleDebugSocketMessage(

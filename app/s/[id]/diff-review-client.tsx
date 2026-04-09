@@ -12,7 +12,12 @@ import { MarkdownLine } from "@/components/markdown-line";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
+import {
+  bindReviewerPresenceSync,
+  handleDebugSocketMessage,
+  handlePresenceSocketMessage,
+  sendTabHello,
+} from "@/lib/debug-tab-client";
 import hljs from "highlight.js/lib/core";
 import typescript from "highlight.js/lib/languages/typescript";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -68,12 +73,17 @@ function detectLanguage(filename: string): string | null {
   return ext ? EXT_TO_LANG[ext] ?? null : null;
 }
 
+function normalizeDisplayText(text: string): string {
+  return text.replace(/\r/g, "");
+}
+
 function highlightLine(text: string, language: string | null): string {
-  if (!language || !text.trim()) return escapeHtml(text);
+  const normalized = normalizeDisplayText(text);
+  if (!language || !normalized.trim()) return escapeHtml(normalized);
   try {
-    return hljs.highlight(text, { language }).value;
+    return hljs.highlight(normalized, { language }).value;
   } catch {
-    return escapeHtml(text);
+    return escapeHtml(normalized);
   }
 }
 
@@ -257,6 +267,9 @@ export function DiffReviewClient({
 
     ws.addEventListener("message", async (event) => {
       const data = JSON.parse(event.data);
+      if (handlePresenceSocketMessage(data)) {
+        return;
+      }
       if (await handleDebugSocketMessage(ws, data)) {
         return;
       }
@@ -271,7 +284,11 @@ export function DiffReviewClient({
       }
     });
 
-    return () => ws.close();
+    const cleanupPresenceSync = bindReviewerPresenceSync(ws);
+    return () => {
+      cleanupPresenceSync();
+      ws.close();
+    };
   }, [sessionId]);
 
   const createThread = useCallback(

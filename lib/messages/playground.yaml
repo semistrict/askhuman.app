@@ -7,7 +7,12 @@ playground_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for the completed review (returns when the user clicks Done):
+  Submit the HTML to this session:
+    curl -s -X POST "{BASE_URL}/playground/{SESSION_ID}" \
+      -F "html=<playground.html"
+
+  That call waits for the reviewer and returns when they click Done.
+  Standalone poll is also available:
     curl -s "{BASE_URL}/playground/{SESSION_ID}/poll"
 
   The HTML can send results back via:
@@ -15,9 +20,8 @@ playground_created: |
       { type: 'askhuman:result', data: '...' }, '*'
     )
 
-  After changes, update the playground HTML:
-    curl -s -X POST "{BASE_URL}/playground" \
-      -F sessionId={SESSION_ID} \
+  After changes, update the same session with:
+    curl -s -X POST "{BASE_URL}/playground/{SESSION_ID}" \
       -F "html=<playground.html"
 
 playground_updated: >-

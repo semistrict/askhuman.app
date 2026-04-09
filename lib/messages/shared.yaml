@@ -25,32 +25,37 @@ match_no_hunks: >-
 # Route-level errors
 
 route_diff_get: >-
-  POST a diff body to create a diff review session
+  POST this endpoint with no body to create a diff review session. Then submit
+  the actual diff to POST /diff/{id}.
 
 route_plan_get: >-
-  POST a markdown body to create a single-file markdown review session.
-  Prefer POST /review with a markdown file field.
+  POST this endpoint with no body to create a markdown review session.
+  Then submit the actual markdown to POST /review/{id}. /plan is a
+  compatibility alias.
 
 route_diff_reply_get: >-
   POST replies to this endpoint
 
 route_plan_reply_get: >-
-  POST replies to this endpoint, or use /review with sessionId to upload a revised markdown file.
+  POST replies to this endpoint, or use POST /review/{id} to upload a revised markdown file.
   /plan is a compatibility alias.
 
 route_plan_update_get: >-
   POST updated markdown to this endpoint to revise the current markdown review session.
-  Prefer POST /review with sessionId.
+  Prefer POST /review/{id}.
 
 route_files_get: >-
-  POST files to create a review session. /files is a compatibility alias;
+  POST this endpoint with no body to create a review session. Then submit the
+  actual files to POST /review/{id}. /files is a compatibility alias;
   prefer POST /review.
 
 route_review_get: >-
-  POST files to create a review session
+  POST this endpoint with no body to create a review session. Then submit the
+  actual files to POST /review/{id}.
 
 route_present_get: >-
-  POST markdown to create a presentation review session.
+  POST this endpoint with no body to create a presentation review session.
+  Then submit the actual markdown to POST /present/{id}.
 
 route_present_reply_get: >-
   POST replies to this endpoint

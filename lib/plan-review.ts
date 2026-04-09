@@ -83,7 +83,8 @@ export async function requestDocRevision(sessionId: string, baseUrl: string) {
 
   if (
     !(await session.hasConnectedAgentKind("plan_poll")) &&
-    !(await session.hasConnectedAgentKind("file_poll"))
+    !(await session.hasConnectedAgentKind("file_poll")) &&
+    !(await session.hasConnectedAgentKind("review_poll"))
   ) {
     return {
       ok: false,

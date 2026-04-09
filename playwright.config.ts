@@ -11,6 +11,6 @@ export default defineConfig({
   webServer: {
     command: "pnpm run dev:vinext",
     port: 15032,
-    reuseExistingServer: true,
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
   },
 });

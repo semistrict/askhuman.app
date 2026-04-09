@@ -2,7 +2,7 @@
 
 Human-in-the-loop review tools for AI agents. Sometimes your agent needs to phone a friend.
 
-Agents submit reviews, diffs, presentations, or playgrounds via curl. Humans review in their browser with general or line-specific comments. Single-markdown-file reviews return when the reviewer clicks `Request Revision`; diff, presentation, multi-file, and playground reviews return when they click `Done`.
+Agents first start a tool-specific session via curl, then ask the human to open the review URL, then submit the actual tool payload into that session. Single-markdown-file reviews return when the reviewer clicks `Request Revision`; diff, presentation, multi-file, playground, and encrypted-share sessions return when the reviewer clicks `Done`.
 
 **Live at [askhuman.app](https://askhuman.app)**
 
@@ -15,23 +15,29 @@ curl https://askhuman.app
 
 ## How It Works
 
-1. Agent submits a markdown file, file set, diff, presentation, or playground
-2. Human reviews in the browser and leaves comments
-3. Human clicks `Request Revision` for single markdown-file reviews, or `Done` for other review flows
-4. Agent polls for the completed review
-5. Agent updates the session or starts a fresh review when needed
+1. Agent starts a tool-specific session
+2. Human opens the session URL in the browser
+3. Agent submits the tool payload into that session
+4. The submit call waits for the human and returns the completed review
+5. Agent updates the same session or starts a fresh one when needed
 
 ## Interfaces
 
 | Interface | Endpoint | Use |
 |-----------|----------|-----|
-| REST | `https://askhuman.app/{review,diff,present,playground}` | curl, fetch, any HTTP client |
+| REST bootstrap | `https://askhuman.app/{review,diff,present,playground,share}` | create a tool-specific session |
+| REST action | `https://askhuman.app/{review,diff,present,playground,share}/{id}` | submit or update tool content inside a session |
+| REST poll | `https://askhuman.app/{review,diff,present,playground,share}/{id}/poll` | optional standalone poll |
 | Browser | `https://askhuman.app/s/{id}` | Human reviewer UI |
 
 Compatibility aliases:
 - `/files` still works for the review flow
 - `/plan` still works for single markdown-file review sessions
 - `/remark` still works for presentations
+
+## Encrypted Share
+
+`/share` is a zero-knowledge document handoff: the agent encrypts locally, uploads only ciphertext JSON, and opens the reviewer URL with the key in `#key=...`. The fragment never reaches the server, and the browser decrypts with Web Crypto before rendering the markdown.
 
 ## Development
 

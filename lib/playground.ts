@@ -17,6 +17,9 @@ export async function createPlayground(
   html: string,
   baseUrl: string
 ) {
+  if (!html.trim()) {
+    throw new PlaygroundError(msg("playground_no_html"));
+  }
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("playground");
   await session.setContent(html);
@@ -36,6 +39,9 @@ export async function updatePlayground(
   html: string,
   baseUrl: string
 ) {
+  if (!html.trim()) {
+    throw new PlaygroundError(msg("playground_no_html"));
+  }
   const session = SessionDO.getInstance(sessionId);
 
   if (await session.isDone()) {

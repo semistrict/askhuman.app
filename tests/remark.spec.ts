@@ -1,8 +1,8 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const JSON_ACCEPT = { Accept: "application/json" };
 
-const REMARK_MARKDOWN = `# Opening
+const PRESENT_MARKDOWN = `# Opening
 
 Welcome to the deck.
 
@@ -13,106 +13,95 @@ Welcome to the deck.
 This slide contains anchorable text for feedback.
 `;
 
-async function createRemarkSession(
-  request: { post: Function },
-  markdown: string = REMARK_MARKDOWN
-) {
-  const multipart: Record<string, string> = { markdown };
-  const res = await request.post("/present", {
-    headers: JSON_ACCEPT,
-    multipart,
-  });
+async function startPresentSession(request: { post: Function }) {
+  const res = await request.post("/present", { headers: JSON_ACCEPT });
   expect(res.status()).toBe(200);
   return await res.json();
 }
 
-function postDoneAfterDelay(
-  request: { post: (url: string, options?: { data?: unknown }) => Promise<unknown> },
-  sessionId: string,
-  delayMs: number = 100
-) {
-  return new Promise<void>((resolve, reject) => {
-    setTimeout(() => {
-      request
-        .post(`/s/${sessionId}/done`)
-        .then(() => resolve(), reject);
-    }, delayMs);
+function submitPresentSession(sessionId: string, markdown: string, extra: Record<string, string> = {}) {
+  const formData = new FormData();
+  formData.set("markdown", markdown);
+  for (const [key, value] of Object.entries(extra)) {
+    formData.set(key, value);
+  }
+  return fetch(`http://localhost:15032/present/${sessionId}`, {
+    method: "POST",
+    headers: JSON_ACCEPT,
+    body: formData,
   });
 }
 
 test.describe("Presentation", () => {
-  test("creates a presentation session with remark as the default mode", async ({ request }) => {
-    const body = await createRemarkSession(request);
+  test("starts a presentation session and returns the nested action endpoint", async ({
+    request,
+  }) => {
+    const body = await startPresentSession(request);
     expect(body.sessionId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(body.url).toContain(`/s/${body.sessionId}`);
-    expect(body.message).toContain(`/present/${body.sessionId}/poll`);
-    expect(body.message).toContain("Presentation review session created.");
+    expect(body.message).toContain("Chrome app mode");
+    expect(body.next).toContain(`/present/${body.sessionId}`);
   });
 
-  test("rejects the removed mode field", async ({ request }) => {
+  test("bootstrap rejects a presentation payload on the root endpoint", async ({ request }) => {
     const res = await request.post("/present", {
       headers: JSON_ACCEPT,
-      multipart: {
-        markdown: REMARK_MARKDOWN,
-        mode: "revealjs",
-      },
+      multipart: { markdown: PRESENT_MARKDOWN },
     });
     expect(res.status()).toBe(400);
-    expect((await res.json()).error).toContain("no longer configurable");
+    expect((await res.json()).error).toContain("POST /present only creates an empty presentation session");
   });
 
-  test("browser renders remark slides and allows navigation", async ({ page, request }) => {
-    const { sessionId } = await createRemarkSession(request);
+  test("browser renders slides after the action initializes the session", async ({ page, request }) => {
+    const { sessionId } = await startPresentSession(request);
+    const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
     await page.goto(`/s/${sessionId}`);
-
     await expect(page.getByRole("heading", { name: "Presentation" })).toBeVisible();
-    await expect(page.getByText("Remark", { exact: true })).toBeVisible();
     await expect(page.getByText("Welcome to the deck.")).toBeVisible();
 
-    await page.getByRole("button", { name: "Next" }).click();
-    await expect(page.getByRole("heading", { name: "Second Slide" })).toBeVisible();
-    await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
+    await request.post(`/s/${sessionId}/done`);
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
+    expect((await actionRes.json()).status).toBe("done");
   });
 
-  test("selection comments include selected text and context in poll output", async ({ page, request }) => {
-    const { sessionId } = await createRemarkSession(request);
+  test("selection comments include selection text and context in the action response", async ({
+    page,
+    request,
+  }) => {
+    const { sessionId } = await startPresentSession(request);
+    const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
     await page.goto(`/s/${sessionId}`);
+    await expect(page.getByText("Welcome to the deck.")).toBeVisible();
     await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
 
-    await page.locator("main article p").filter({
-      hasText: "This slide contains anchorable text for feedback.",
-    }).evaluate((element) => {
-      const node = element.firstChild;
-      if (!node || node.nodeType !== Node.TEXT_NODE) {
-        throw new Error("Expected text node inside remark paragraph");
-      }
-      const text = node.textContent ?? "";
-      const start = text.indexOf("anchorable text");
-      const end = start + "anchorable text".length;
-      const range = document.createRange();
-      range.setStart(node, start);
-      range.setEnd(node, end);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    });
-
-    await expect(page.getByText("Anchored Comment", { exact: true })).toBeVisible();
+    await page
+      .locator("main article p")
+      .filter({ hasText: "This slide contains anchorable text for feedback." })
+      .evaluate((element) => {
+        const node = element.firstChild;
+        if (!node || node.nodeType !== Node.TEXT_NODE) {
+          throw new Error("Expected a text node");
+        }
+        const text = node.textContent ?? "";
+        const start = text.indexOf("anchorable text");
+        const end = start + "anchorable text".length;
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, end);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      });
 
     await page.getByPlaceholder("Comment on this selection...").fill("Tighten this wording.");
     await page.getByRole("button", { name: "Comment on Selection" }).click();
-    await expect(page.getByText("Tighten this wording.")).toBeVisible();
+    await request.post(`/s/${sessionId}/done`);
 
-    const delayedDone = postDoneAfterDelay(request, sessionId, 300);
-    await page.locator("aside").getByRole("button", { name: "Done" }).click();
-
-    const pollRes = await request.get(`/present/${sessionId}/poll`, {
-      headers: JSON_ACCEPT,
-      timeout: 10000,
-    });
-    await delayedDone;
-    const body = await pollRes.json();
+    const actionRes = await actionPromise;
+    const body = await actionRes.json();
     expect(body.status).toBe("done");
     expect(body.threads[0].selection_text).toContain("anchorable text");
     expect(body.threads[0].selection_context).toContain("feedback");
@@ -120,27 +109,61 @@ test.describe("Presentation", () => {
     expect(body.threads[0].messages[0].text).toBe("Tighten this wording.");
   });
 
-  test("updating a presentation session resets done and marks old comments outdated", async ({ page, request }) => {
-    const { sessionId } = await createRemarkSession(request);
-    await request.post(`/s/${sessionId}/threads`, {
-      data: { text: "Old note" },
-    });
+  test("updating a presentation session marks older comments outdated and reopens review", async ({
+    page,
+    request,
+  }) => {
+    const { sessionId } = await startPresentSession(request);
+    await page.goto(`/s/${sessionId}`);
+
+    const initialAction = submitPresentSession(sessionId, PRESENT_MARKDOWN);
+    await expect(page.getByText("Welcome to the deck.")).toBeVisible();
+    await request.post(`/s/${sessionId}/threads`, { data: { text: "Old note" } });
+    await request.post(`/s/${sessionId}/done`);
+    await initialAction;
+
+    const updatePromise = submitPresentSession(
+      sessionId,
+      "# Updated Deck\n\nFresh slide.",
+      { response: "Updated the deck." }
+    );
+    await page.reload();
+    await expect(page.getByText("Updated Deck")).toBeVisible();
+    await expect(page.getByText("Old note")).toBeVisible();
+    await expect(page.getByText("outdated")).toBeVisible();
     await request.post(`/s/${sessionId}/done`);
 
-    await page.goto(`/s/${sessionId}`);
-    await expect(page.getByText("Old note")).toBeVisible();
+    const updateRes = await updatePromise;
+    expect(updateRes.status).toBe(200);
+    expect((await updateRes.json()).status).toBe("done");
+  });
 
-    const updateRes = await request.post("/present", {
+  test("standalone poll still works after a presentation is initialized", async ({ page, request }) => {
+    const { sessionId } = await startPresentSession(request);
+    await page.goto(`/s/${sessionId}`);
+
+    const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
+    await expect(page.getByText("Welcome to the deck.")).toBeVisible();
+    await request.post(`/s/${sessionId}/threads`, { data: { text: "Looks good" } });
+    await request.post(`/s/${sessionId}/done`);
+
+    const pollRes = await request.get(`/present/${sessionId}/poll`, { headers: JSON_ACCEPT });
+    const body = await pollRes.json();
+    expect(body.status).toBe("done");
+    expect(body.threads[0].messages[0].text).toBe("Looks good");
+    await actionPromise;
+  });
+
+  test("rejects the removed mode field on the action endpoint", async ({ request }) => {
+    const { sessionId } = await startPresentSession(request);
+    const res = await request.post(`/present/${sessionId}`, {
       headers: JSON_ACCEPT,
       multipart: {
-        sessionId,
-        markdown: "# Updated Deck\n\nFresh slide.",
+        markdown: PRESENT_MARKDOWN,
+        mode: "revealjs",
       },
     });
-    expect(updateRes.status()).toBe(200);
-
-    await expect(page.getByText("Updated Deck")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Done" })).toBeVisible();
-    await expect(page.getByText("outdated")).toBeVisible();
+    expect(res.status()).toBe(400);
+    expect((await res.json()).error).toContain("no longer configurable");
   });
 });

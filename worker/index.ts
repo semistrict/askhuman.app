@@ -8,57 +8,13 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import type { ImageConfig } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { buildRootPlainText } from "@/lib/root-plain";
 
 export { SessionDO } from "./session";
 
 async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
-
-  const text = `# askhuman.app
-
-Human-in-the-loop review tools for AI agents.
-Submit via curl, open the URL for the user, and poll for the completed review.
-
-## Review
-
-Review a markdown doc:
-
-  curl -s -X POST ${base}/review \\
-    -F "doc.md=<doc.md"
-
-Review one or more code files:
-
-  curl -s -X POST ${base}/review \\
-    -F "src/main.ts=<src/main.ts" \\
-    -F "src/utils.ts=<src/utils.ts"
-
-Single markdown-file reviews return when the reviewer clicks Request Revision.
-Other review sessions return when they click Done.
-
-## Diff review
-
-  curl -s -X POST ${base}/diff \\
-    -F description=@description.md \\
-    -F diff=@current.diff
-
-## Present
-
-  curl -s -X POST ${base}/present \\
-    -F "markdown=<slides.md"
-
-## Playground
-
-  curl -s -X POST ${base}/playground \\
-    -F "html=<playground.html"
-
-Each response includes a sessionId, a review URL, and polling instructions.
-Open the URL for the same user you are already interacting with.
-For large inputs, write them to a temporary file first and submit with
-\`-F "name=<path"\` or \`@path\` instead of inlining huge strings.
-For a cleaner reviewer window, prefer Chrome app mode:
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="URL" &
-Poll with GET .../{id}/poll. Single markdown-file reviews return when the user clicks Request Revision; other review flows return when they click Done.
-`;
+  const text = buildRootPlainText(base);
 
   return new Response(text.endsWith("\n") ? text : `${text}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },

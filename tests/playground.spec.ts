@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const JSON_ACCEPT = { Accept: "application/json" };
 
@@ -22,13 +22,20 @@ const UPDATED_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-async function createPlayground(request: { post: Function }, html: string) {
-  const res = await request.post("/playground", {
-    headers: JSON_ACCEPT,
-    multipart: { html },
-  });
+async function startPlaygroundSession(request: { post: Function }) {
+  const res = await request.post("/playground", { headers: JSON_ACCEPT });
   expect(res.status()).toBe(200);
   return await res.json();
+}
+
+function submitPlaygroundSession(sessionId: string, html: string) {
+  const formData = new FormData();
+  formData.set("html", html);
+  return fetch(`http://localhost:15032/playground/${sessionId}`, {
+    method: "POST",
+    headers: JSON_ACCEPT,
+    body: formData,
+  });
 }
 
 function postDoneAfterDelay(
@@ -38,152 +45,127 @@ function postDoneAfterDelay(
 ) {
   return new Promise<void>((resolve, reject) => {
     setTimeout(() => {
-      request
-        .post(`/s/${sessionId}/done`)
-        .then(() => resolve(), reject);
+      request.post(`/s/${sessionId}/done`).then(() => resolve(), reject);
     }, delayMs);
   });
 }
 
 test.describe("Playground", () => {
-  test("creates a playground session", async ({ request }) => {
-    const body = await createPlayground(request, SIMPLE_HTML);
+  test("starts a playground session and returns the nested action endpoint", async ({
+    request,
+  }) => {
+    const body = await startPlaygroundSession(request);
     expect(body.sessionId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(body.url).toContain(`/s/${body.sessionId}`);
-    expect(body.message).toContain("/playground/" + body.sessionId + "/poll");
+    expect(body.message).toContain("Chrome app mode");
+    expect(body.next).toContain(`/playground/${body.sessionId}`);
   });
 
-  test("browser renders HTML in iframe", async ({ page, request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
+  test("browser renders submitted HTML in the iframe", async ({ page, request }) => {
+    const { sessionId } = await startPlaygroundSession(request);
+    const actionPromise = submitPlaygroundSession(sessionId, SIMPLE_HTML);
     await page.goto(`/s/${sessionId}`);
 
-    await expect(page.getByText("Playground")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Playground" })).toBeVisible();
     const iframe = page.frameLocator("iframe");
     await expect(iframe.locator("#title")).toHaveText("My Playground");
-  });
-
-  test("shows agent presence while a playground poll is in flight", async ({ page, request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
-    await page.goto(`/s/${sessionId}`);
-
-    const pollPromise = request.get(`/playground/${sessionId}/poll`, {
-      headers: JSON_ACCEPT,
-      timeout: 10000,
-    });
-
-    await expect(page.getByText("Agent polling")).toBeVisible({ timeout: 5000 });
 
     await request.post(`/s/${sessionId}/done`);
-    await pollPromise;
-
-    await expect(page.getByText("Agent idle")).toBeVisible({ timeout: 5000 });
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
+    expect((await actionRes.json()).status).toBe("done");
   });
 
-  test("postMessage result is stored and returned on poll", async ({ page, request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
+  test("playground action returns stored result and comments after Done", async ({
+    page,
+    request,
+  }) => {
+    const { sessionId } = await startPlaygroundSession(request);
+    const actionPromise = submitPlaygroundSession(sessionId, SIMPLE_HTML);
     await page.goto(`/s/${sessionId}`);
 
     const iframe = page.frameLocator("iframe");
-    await iframe.locator("#name").fill("Alice");
-    await iframe.locator("#submit").click();
-
-    // Wait for result to be persisted
-    await page.waitForTimeout(200);
-
-    // Click Done
-    const delayedDone = postDoneAfterDelay(request, sessionId, 300);
-    await page.locator("aside").getByRole("button", { name: "Done" }).click();
-
-    const pollRes = await request.get(`/playground/${sessionId}/poll`, {
-      headers: JSON_ACCEPT,
-      timeout: 10000,
+    await iframe.locator("body").evaluate(() => {
+      window.parent.postMessage(
+        { type: "askhuman:result", data: JSON.stringify({ name: "Alice" }) },
+        "*"
+      );
     });
-    await delayedDone;
-
-    const body = await pollRes.json();
-    expect(body.status).toBe("done");
-    expect(body.result).toContain("Alice");
-  });
-
-  test("poll returns comments alongside result", async ({ page, request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
-    await page.goto(`/s/${sessionId}`);
-
-    await request.post(`/s/${sessionId}/threads`, {
-      data: { text: "This is great" },
-    });
+    await request.post(`/s/${sessionId}/threads`, { data: { text: "This is great" } });
     await request.post(`/s/${sessionId}/done`);
 
-    const pollRes = await request.get(`/playground/${sessionId}/poll`, {
-      headers: JSON_ACCEPT,
-    });
-    const body = await pollRes.json();
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
+    const body = await actionRes.json();
     expect(body.status).toBe("done");
+    expect(body.result).toContain("Alice");
     expect(body.threads[0].messages[0].text).toBe("This is great");
   });
 
-  test("update replaces HTML and resets done", async ({ page, request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
+  test("standalone poll is rejected while another agent waiter is already active", async ({
+    page,
+    request,
+  }) => {
+    const { sessionId } = await startPlaygroundSession(request);
     await page.goto(`/s/${sessionId}`);
-    await request.post(`/s/${sessionId}/done`);
 
-    // Update
-    const updateRes = await request.post("/playground", {
-      headers: JSON_ACCEPT,
-      multipart: { sessionId, html: UPDATED_HTML },
-    });
-    expect(updateRes.status()).toBe(200);
-    expect((await updateRes.json()).message).toContain("updated");
+    const actionPromise = submitPlaygroundSession(sessionId, SIMPLE_HTML);
+    await expect(page.frameLocator("iframe").locator("#title")).toHaveText("My Playground");
 
-    // Poll should wait (not immediately return done)
-    const delayedDone = postDoneAfterDelay(request, sessionId);
     const pollRes = await request.get(`/playground/${sessionId}/poll`, {
       headers: JSON_ACCEPT,
       timeout: 10000,
     });
-    await delayedDone;
-    expect((await pollRes.json()).status).toBe("done");
+    expect(pollRes.status()).toBe(409);
+    expect((await pollRes.json()).error).toContain("already waiting");
+    await request.post(`/s/${sessionId}/done`);
+    await actionPromise;
   });
 
-  test("done session shows read-only state", async ({ page, request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
-    await request.post(`/s/${sessionId}/threads`, {
-      data: { text: "Looks good" },
-    });
+  test("updating the same playground session replaces HTML and reopens review", async ({
+    page,
+    request,
+  }) => {
+    const { sessionId } = await startPlaygroundSession(request);
+    await page.goto(`/s/${sessionId}`);
+
+    const initialAction = submitPlaygroundSession(sessionId, SIMPLE_HTML);
+    await expect(page.frameLocator("iframe").locator("#title")).toHaveText("My Playground");
+    await request.post(`/s/${sessionId}/done`);
+    await initialAction;
+
+    const updatePromise = submitPlaygroundSession(sessionId, UPDATED_HTML);
+    await page.reload();
+    await expect(page.frameLocator("iframe").locator("#title")).toHaveText("Updated Playground");
+    await expect(page.frameLocator("iframe").getByText("Version 2")).toBeVisible();
     await request.post(`/s/${sessionId}/done`);
 
-    await page.goto(`/s/${sessionId}`);
-    // Content visible
-    const iframe = page.frameLocator("iframe");
-    await expect(iframe.locator("#title")).toHaveText("My Playground");
-    // Comment visible
-    await expect(page.locator("text=Looks good")).toBeVisible();
-    // Done notice shown, buttons gone
-    await expect(page.locator("text=Waiting for the agent to update this session.")).toBeVisible();
-    await expect(page.locator("button", { hasText: "Done" })).not.toBeVisible();
+    const updateRes = await updatePromise;
+    expect(updateRes.status).toBe(200);
+    expect((await updateRes.json()).status).toBe("done");
   });
 
-  test("empty html submission is rejected", async ({ request }) => {
-    const res = await request.post("/playground", {
+  test("action returns an error if the user never opens the page", async ({ request }) => {
+    const { sessionId, url } = await startPlaygroundSession(request);
+    const actionRes = await request.post(`/playground/${sessionId}`, {
+      headers: JSON_ACCEPT,
+      multipart: { html: SIMPLE_HTML },
+      timeout: 15000,
+    });
+    expect(actionRes.status()).toBe(200);
+    const body = await actionRes.json();
+    expect(body.status).toBe("error");
+    expect(body.url).toBe(url);
+    expect(body.message).toContain("has not connected yet");
+  });
+
+  test("empty html submission is rejected on the action endpoint", async ({ request }) => {
+    const { sessionId } = await startPlaygroundSession(request);
+    const res = await request.post(`/playground/${sessionId}`, {
       headers: JSON_ACCEPT,
       multipart: { html: "" },
     });
     expect(res.status()).toBe(400);
     expect((await res.json()).error).toContain("html");
-  });
-
-  test("poll markdown includes result", async ({ request }) => {
-    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
-
-    // Store a result directly
-    await request.post(`/s/${sessionId}/result`, {
-      data: '{"color":"blue"}',
-    });
-    await request.post(`/s/${sessionId}/done`);
-
-    const res = await request.get(`/playground/${sessionId}/poll`);
-    const text = await res.text();
-    expect(text).toContain("## Result");
-    expect(text).toContain('"color":"blue"');
   });
 });

@@ -72,11 +72,7 @@ export function AgentPresenceBadge({ sessionId }: AgentPresenceBadgeProps) {
             : "h-1.5 w-1.5 rounded-full bg-muted-foreground/60"
         }
       />
-      {isConnected
-        ? connectedCount === 1
-          ? "Agent polling"
-          : `${connectedCount} agents polling`
-        : "Agent idle"}
+      {isConnected ? "Agent waiting" : "No agent connected"}
     </Badge>
   );
 }

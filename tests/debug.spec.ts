@@ -2,15 +2,20 @@ import { expect, test } from "@playwright/test";
 
 const JSON_ACCEPT = { Accept: "application/json" };
 
-async function createPlanSession(request: { post: Function }) {
-  const res = await request.post("/review", {
-    headers: JSON_ACCEPT,
-    multipart: {
-      "doc.md": "# Debug target\n\nHello from the file page.\n",
-    },
-  });
+async function startReviewSession(request: { post: Function }) {
+  const res = await request.post("/review", { headers: JSON_ACCEPT });
   expect(res.status()).toBe(200);
   return await res.json();
+}
+
+function submitReviewSession(sessionId: string, markdown: string) {
+  const formData = new FormData();
+  formData.set("doc.md", markdown);
+  return fetch(`http://localhost:15032/review/${sessionId}`, {
+    method: "POST",
+    headers: JSON_ACCEPT,
+    body: formData,
+  });
 }
 
 test.describe("Debug Endpoints", () => {
@@ -18,9 +23,11 @@ test.describe("Debug Endpoints", () => {
     page,
     request,
   }) => {
-    const { sessionId } = await createPlanSession(request);
+    const { sessionId } = await startReviewSession(request);
     await page.goto(`/s/${sessionId}`);
-    await expect(page.getByText("File Review")).toBeVisible();
+
+    const actionPromise = submitReviewSession(sessionId, "# Debug target\n\nHello from the file page.\n");
+    await expect(page.getByText("Debug target")).toBeVisible();
 
     let tabId: string | null = null;
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -43,7 +50,7 @@ return {
   title: document.title,
   heading: document.querySelector("h1")?.textContent ?? null,
   path: window.location.pathname,
-  hasCommentButton: !!Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Comment"))
+  hasRequestRevisionButton: !!Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Request Revision"))
 };
       `,
       headers: JSON_ACCEPT,
@@ -54,19 +61,18 @@ return {
     expect(result.sessionId).toBe(sessionId);
     expect(result.result.heading).toBe("File Review");
     expect(result.result.path).toBe(`/s/${sessionId}`);
-    expect(result.result.hasCommentButton).toBe(true);
+    expect(result.result.hasRequestRevisionButton).toBe(true);
+
+    await request.post(`/s/${sessionId}/request-revision`);
+    await actionPromise;
   });
 
-  test("list connected agent long-polls while a curl wait is in flight", async ({
-    request,
-  }) => {
-    const { sessionId } = await createPlanSession(request);
-    const pollPromise = fetch(`http://localhost:15032/review/${sessionId}/poll`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "curl/8.7.1",
-      },
-    });
+  test("list connected agent long-polls while a review poll is in flight", async ({ page, request }) => {
+    const { sessionId } = await startReviewSession(request);
+    await page.goto(`/s/${sessionId}`);
+
+    const actionPromise = submitReviewSession(sessionId, "# Debug target\n\nHello from the file page.\n");
+    await expect(page.getByText("Debug target")).toBeVisible();
 
     let agentId: string | null = null;
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -78,28 +84,29 @@ return {
         sessionId: string;
         kind: string;
         endpoint: string;
-      }>).find((agent) => agent.kind === "file_poll");
+      }>).find((agent) => agent.kind === "review_poll");
       if (match) {
         agentId = match.agentId;
-        expect(match.endpoint).toBe(`/review/${sessionId}/poll`);
+        expect(match.endpoint).toBe(`/review/${sessionId}`);
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await page.waitForTimeout(100);
     }
 
     expect(agentId).toBeTruthy();
 
-    const pollRes = await pollPromise;
-    expect(pollRes.status).toBe(200);
+    await request.post(`/s/${sessionId}/request-revision`);
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
 
     for (let attempt = 0; attempt < 20; attempt++) {
       const listRes = await request.get(`/s/${sessionId}/debug/agents`, { headers: JSON_ACCEPT });
       const body = await listRes.json();
-      const stillConnected = (
-        body.agents as Array<{ agentId: string }>
-      ).some((agent) => agent.agentId === agentId);
+      const stillConnected = (body.agents as Array<{ agentId: string }>).some(
+        (agent) => agent.agentId === agentId
+      );
       if (!stillConnected) return;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await page.waitForTimeout(100);
     }
 
     throw new Error(`Agent long-poll ${agentId} was still listed after the request completed`);

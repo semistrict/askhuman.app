@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+function normalizeBaseUrls(text: string) {
+  return text.replaceAll("http://localhost:15032", "https://askhuman.app");
+}
+
 test.describe("Root Page", () => {
   test("serves plain-text instructions to fetch-style agents", async ({ request }) => {
     const cases = [
@@ -16,6 +20,7 @@ test.describe("Root Page", () => {
       expect(text).toContain("# askhuman.app");
       expect(text).toContain("/review");
       expect(text).toContain("/present");
+      expect(text).toContain("/share");
       expect(text).toContain("temporary file");
       expect(text).toContain("Google Chrome.app");
     }
@@ -29,16 +34,16 @@ test.describe("Root Page", () => {
 
     expect(llmsRes.status()).toBe(200);
     expect(llmsRes.headers()["content-type"]).toContain("text/plain");
-    await expect(llmsRes.text()).resolves.toBe(await rootRes.text());
+    expect(normalizeBaseUrls(await llmsRes.text())).toBe(normalizeBaseUrls(await rootRes.text()));
   });
 
   test("footer exposes settings next to github and persists the toggle", async ({ page }) => {
     await page.goto("/");
 
     await expect(page.getByRole("link", { name: "github" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "settings" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "settings", exact: true })).toBeVisible();
 
-    await page.getByRole("link", { name: "settings" }).click();
+    await page.getByRole("link", { name: "settings", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
 
     await page.getByLabel("Your name").fill("Ramon");
@@ -48,7 +53,7 @@ test.describe("Root Page", () => {
     await page.getByRole("button", { name: "Close" }).click();
 
     await page.reload();
-    await page.getByRole("link", { name: "settings" }).click();
+    await page.getByRole("link", { name: "settings", exact: true }).click();
     await expect(page.getByLabel("Your name")).toHaveValue("Ramon");
     await expect(page.getByLabel("Enable PostHog monitoring")).toBeChecked();
   });

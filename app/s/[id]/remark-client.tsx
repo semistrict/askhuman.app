@@ -10,7 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CommentPanel } from "@/components/comment-panel";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
-import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
+import {
+  bindReviewerPresenceSync,
+  handleDebugSocketMessage,
+  handlePresenceSocketMessage,
+  sendTabHello,
+} from "@/lib/debug-tab-client";
 
 type SelectionDraft = {
   text: string;
@@ -123,6 +128,9 @@ export function PresentClient({
 
     ws.addEventListener("message", async (event) => {
       const data = JSON.parse(event.data);
+      if (handlePresenceSocketMessage(data)) {
+        return;
+      }
       if (await handleDebugSocketMessage(ws, data)) {
         return;
       }
@@ -133,7 +141,11 @@ export function PresentClient({
       }
     });
 
-    return () => ws.close();
+    const cleanupPresenceSync = bindReviewerPresenceSync(ws);
+    return () => {
+      cleanupPresenceSync();
+      ws.close();
+    };
   }, [sessionId]);
 
   const captureSelection = useCallback(() => {

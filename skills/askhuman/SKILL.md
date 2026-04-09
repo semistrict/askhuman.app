@@ -1,10 +1,11 @@
 ---
 name: askhuman
 description: >-
-  Human-in-the-loop review tools. Submit plans, diffs, files, or
-  interactive HTML playgrounds for the same user the agent is already
-  interacting with. The user reviews in the browser, leaves numbered
-  comments, clicks Done, and the agent polls for feedback.
+  Human-in-the-loop review tools. Submit plans, diffs, files,
+  interactive HTML playgrounds, or encrypted document shares for the
+  same user the agent is already interacting with. The user reviews in
+  the browser, leaves numbered comments when applicable, clicks Done,
+  and the agent polls for feedback.
 ---
 
 # askhuman.app
@@ -20,7 +21,7 @@ curl, open the returned URL for the user, poll for their feedback.
 
 ## Common Pattern
 
-All four tools follow the same flow:
+All five tools follow the same flow:
 
 1. Agent submits content via `POST`
 2. Agent opens the URL for the user (try Chrome app mode for a
@@ -224,3 +225,36 @@ should both be visible without scrolling.
 - External dependencies -- CDN down means playground is dead
 - Preview doesn't update live -- feels broken
 - No defaults -- starts empty on first load
+
+---
+
+## Encrypted Share
+
+Submit an encrypted markdown document. The server stores only the ciphertext
+envelope; the browser decrypts with Web Crypto using the key in the URL fragment.
+
+### Bootstrap
+
+```bash
+curl -s -X POST https://askhuman.app/share
+```
+
+### Submit
+
+```bash
+curl -s -X POST https://askhuman.app/share/<sessionId> \
+  -H 'Content-Type: application/json' \
+  --data-binary @encrypted-share.json
+```
+
+The reviewer URL must include the local key fragment:
+
+```text
+https://askhuman.app/s/<sessionId>#key=<local-key>
+```
+
+### Notes
+
+- The JSON body must contain `version`, `alg`, `iv`, `ciphertext`, and `mac`.
+- The built-in recipe uses AES-256-CBC for encryption and HMAC-SHA256 for integrity.
+- The fragment key never reaches the server.

@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  APP_SETTINGS_HASH,
   APP_SETTINGS_CHANGED_EVENT,
   APP_SETTINGS_OPEN_EVENT,
   APP_SETTINGS_STORAGE_KEY,
   DEFAULT_APP_SETTINGS,
   getEffectiveReviewerName,
+  openAppSettings,
   readAppSettings,
   writeAppSettings,
   type AppSettings,
@@ -111,24 +114,31 @@ export function AppSettingsPanel() {
 
   useEffect(() => {
     const sync = () => setSettings(loadSettings());
+    const syncOpenStateFromHash = () => {
+      setIsOpen(window.location.hash === APP_SETTINGS_HASH);
+    };
     sync();
+    syncOpenStateFromHash();
     setIsReady(true);
 
     const onSettingsChanged = () => sync();
-    const onOpen = () => setIsOpen(true);
+    const onOpen = () => syncOpenStateFromHash();
     const onStorage = (event: StorageEvent) => {
       if (event.key == null || event.key === APP_SETTINGS_STORAGE_KEY) {
         sync();
       }
     };
+    const onHashChange = () => syncOpenStateFromHash();
 
     window.addEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged);
     window.addEventListener(APP_SETTINGS_OPEN_EVENT, onOpen);
     window.addEventListener("storage", onStorage);
+    window.addEventListener("hashchange", onHashChange);
     return () => {
       window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged);
       window.removeEventListener(APP_SETTINGS_OPEN_EVENT, onOpen);
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener("hashchange", onHashChange);
     };
   }, []);
 
@@ -148,6 +158,9 @@ export function AppSettingsPanel() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (window.location.hash === APP_SETTINGS_HASH) {
+          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        }
         setIsOpen(false);
       }
     };
@@ -161,24 +174,33 @@ export function AppSettingsPanel() {
     saveSettings(next);
   };
 
+  const close = () => {
+    if (window.location.hash === APP_SETTINGS_HASH) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+    setIsOpen(false);
+  };
+
   return (
     <>
       <div className="fixed right-4 bottom-4 z-40">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="border-border/80 bg-background/90 shadow-sm backdrop-blur"
-          onClick={() => setIsOpen(true)}
+        <a
+          href={APP_SETTINGS_HASH}
+          aria-label="Settings"
+          className="inline-flex h-9 items-center justify-center rounded-md border border-border/80 bg-background/90 px-3 text-sm shadow-sm backdrop-blur transition-colors hover:bg-accent hover:text-accent-foreground"
+          onClick={(event) => {
+            event.preventDefault();
+            openAppSettings(window);
+          }}
         >
-          Settings
-        </Button>
+          <Settings2 className="size-4" />
+        </a>
       </div>
 
       {isOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-md"
-          onClick={() => setIsOpen(false)}
+          onClick={close}
         >
           <div
             role="dialog"
@@ -196,7 +218,7 @@ export function AppSettingsPanel() {
                   Stored in this browser with localStorage.
                 </p>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setIsOpen(false)}>
+              <Button type="button" variant="ghost" size="sm" onClick={close}>
                 Close
               </Button>
             </div>

@@ -7,12 +7,10 @@ plan_instructions: |-
   - Poll for feedback (returns when the reviewer clicks Request Revision):
      curl -s {POLL_URL}
   - When feedback is returned, address each numbered comment and upload the updated file:
-     curl -s -X POST {BASE_URL}/review \
-       -F sessionId={SESSION_ID} \
+     curl -s -X POST {BASE_URL}/review/{SESSION_ID} \
        -F "{FILE_PATH}=<{FILE_PATH}"
   - To include a general response for the reviewer on update:
-     curl -s -X POST {BASE_URL}/review \
-       -F sessionId={SESSION_ID} \
+     curl -s -X POST {BASE_URL}/review/{SESSION_ID} \
        -F "{FILE_PATH}=<{FILE_PATH}" \
        -F 'response=Addressed the requested revisions.'
 
@@ -42,7 +40,8 @@ plan_change_pickup_generic: >-
 
 doc_comments: >-
   Feedback is ready. Address each numbered comment below, then submit the
-  updated markdown file to {UPDATE_URL}.
+  updated markdown file to {UPDATE_URL}. That call will wait for the reviewer
+  again and return the next completed review.
 
 doc_timeout: >-
   No revision request yet. The human may still be reviewing. Poll again.

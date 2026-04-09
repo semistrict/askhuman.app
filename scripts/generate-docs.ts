@@ -22,85 +22,47 @@ const plan = loadYaml("plan.yaml");
 const diff = loadYaml("diff.yaml");
 const files = loadYaml("files.yaml");
 const playground = loadYaml("playground.yaml");
+const share = loadYaml("share.yaml");
 
 // ---------------------------------------------------------------------------
 // public/llms.txt
 // ---------------------------------------------------------------------------
 
-const llmsTxt = `# askhuman.app - Human-in-the-loop review tools for AI agents
+const llmsTxt = `# askhuman.app
 
-> Sometimes your AI agent needs human input from the same user
-> it is already interacting with. Submit plans, diffs, files, or
-> custom HTML playgrounds via curl. Open the returned URL in that
-> user's browser. Poll for their feedback when they click Done.
+Human-in-the-loop review tools for AI agents.
+Start a tool session, open the URL for the user, then submit the tool payload.
 
-## Quick Start (curl)
+## Review
 
-\`\`\`
-curl https://askhuman.app
-\`\`\`
+Start a review session:
 
-Detects curl and prints session-specific instructions.
+  curl -s -X POST https://askhuman.app/review
 
-## Tools
+## Diff review
 
-### Plan Review
+  curl -s -X POST https://askhuman.app/diff
 
-Submit a markdown plan for line-by-line review.
+## Present
 
-- \`POST /plan\` -- markdown body, returns \`{ sessionId, url, instructions }\`
-- \`GET /plan/{id}/poll\` -- long-polls, returns when reviewer clicks Done
-- Flow: submit -> open URL -> poll -> address numbered comments
+  curl -s -X POST https://askhuman.app/present
 
-### Diff Review
+## Playground
 
-Submit a unified diff with a description for review.
+  curl -s -X POST https://askhuman.app/playground
 
-- \`POST /diff\` -- multipart \`description\` + \`diff\`, returns \`{ sessionId, url, message }\`
-- \`POST /diff\` with \`sessionId\` -- resubmit after code changes (resets done, marks changed-hunk comments outdated)
-- \`GET /diff/{id}/poll\` -- long-polls, returns when reviewer clicks Done
-- Flow: submit -> open URL -> poll -> address comments -> resubmit if needed
+## Encrypted share
 
-### File Review
+  curl -s -X POST https://askhuman.app/share
 
-Submit named files for review with a file selector UI.
-
-- \`POST /files\` -- multipart where field name = file path, value = content
-- \`POST /files\` with \`sessionId\` -- re-upload all files (omitted files are removed, their comments marked outdated)
-- \`GET /files/{id}/poll\` -- long-polls, returns when reviewer clicks Done
-- Flow: submit -> open URL -> poll -> address comments -> re-upload if needed
-
-### Playground
-
-Submit a self-contained HTML page as an interactive UI.
-
-- \`POST /playground\` -- multipart with \`html\` field
-- \`POST /playground\` with \`sessionId\` -- update the HTML
-- \`GET /playground/{id}/poll\` -- long-polls, returns \`{ status, threads, result }\`
-- The HTML sends structured results via \`window.parent.postMessage({ type: 'askhuman:result', data: '...' }, '*')\`
-- Flow: submit HTML -> open URL -> human interacts -> clicks Done -> poll returns result + comments
-
-## Common Patterns
-
-All tools share the same interaction pattern:
-
-1. Agent submits content via \`POST\`
-2. Agent opens the returned URL for the human reviewer
-3. Agent polls with \`GET .../poll\` (long-polls up to 10 min)
-4. Human reviews, leaves numbered comments, clicks Done
-5. Poll returns with status "done" and all comments
-6. Agent addresses each numbered comment
-7. If code changes are needed, agent resubmits and loops back to step 3
-
-Poll statuses: \`"done"\` (comments ready), \`"timeout"\` (poll again),
-\`"error"\` (human not connected, open the URL).
-
-## Data Model
-
-Threads have optional \`hunk_id\`, \`line\`, and \`file_path\` fields
-depending on the tool. Each thread contains messages with \`role\`
-("human" or "agent") and \`text\`. Threads may be marked \`outdated\`
-when content is resubmitted and the underlying hunk/file changes.
+Each start call returns a sessionId, a review URL, and the exact next call.
+Open the URL for the same user you are already interacting with.
+For large inputs, write them to a temporary file first and submit with
+\`-F "name=<path"\` or \`@path\` instead of inlining huge strings.
+For a cleaner reviewer window, prefer Chrome app mode:
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="URL" &
+The tool submit call waits for the human and then polls automatically.
+Standalone poll is still available with GET .../{id}/poll.
 `;
 
 writeFileSync(resolve(ROOT, "public/llms.txt"), llmsTxt);
@@ -113,10 +75,11 @@ console.log("wrote public/llms.txt");
 const skillMd = `---
 name: askhuman
 description: >-
-  Human-in-the-loop review tools. Submit plans, diffs, files, or
-  interactive HTML playgrounds for the same user the agent is already
-  interacting with. The user reviews in the browser, leaves numbered
-  comments, clicks Done, and the agent polls for feedback.
+  Human-in-the-loop review tools. Submit plans, diffs, files,
+  interactive HTML playgrounds, or encrypted document shares for the
+  same user the agent is already interacting with. The user reviews in
+  the browser, leaves numbered comments when applicable, clicks Done,
+  and the agent polls for feedback.
 ---
 
 # askhuman.app
@@ -132,7 +95,7 @@ curl, open the returned URL for the user, poll for their feedback.
 
 ## Common Pattern
 
-All four tools follow the same flow:
+All five tools follow the same flow:
 
 1. Agent submits content via \`POST\`
 2. Agent opens the URL for the user (try Chrome app mode for a
@@ -336,6 +299,39 @@ should both be visible without scrolling.
 - External dependencies -- CDN down means playground is dead
 - Preview doesn't update live -- feels broken
 - No defaults -- starts empty on first load
+
+---
+
+## Encrypted Share
+
+Submit an encrypted markdown document. The server stores only the ciphertext
+envelope; the browser decrypts with Web Crypto using the key in the URL fragment.
+
+### Bootstrap
+
+\`\`\`bash
+curl -s -X POST https://askhuman.app/share
+\`\`\`
+
+### Submit
+
+\`\`\`bash
+curl -s -X POST https://askhuman.app/share/<sessionId> \\
+  -H 'Content-Type: application/json' \\
+  --data-binary @encrypted-share.json
+\`\`\`
+
+The reviewer URL must include the local key fragment:
+
+\`\`\`text
+https://askhuman.app/s/<sessionId>#key=<local-key>
+\`\`\`
+
+### Notes
+
+- The JSON body must contain \`version\`, \`alg\`, \`iv\`, \`ciphertext\`, and \`mac\`.
+- The built-in recipe uses AES-256-CBC for encryption and HMAC-SHA256 for integrity.
+- The fragment key never reaches the server.
 `;
 
 writeFileSync(resolve(ROOT, "skills/askhuman/SKILL.md"), skillMd);

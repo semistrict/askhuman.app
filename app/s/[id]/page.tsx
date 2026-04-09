@@ -4,6 +4,24 @@ import { DiffReviewClient } from "./diff-review-client";
 import { FileReviewClient } from "./file-review-client";
 import { PlaygroundClient } from "./playground-client";
 import { PresentClient } from "./remark-client";
+import { EncryptedShareClient } from "./encrypted-share-client";
+import { SessionAwaitingInit } from "@/components/session-awaiting-init";
+
+function titleForTool(toolId: string | null) {
+  if (toolId === "diff") return "Diff Review";
+  if (toolId === "present") return "Presentation";
+  if (toolId === "playground") return "Playground";
+  if (toolId === "share") return "Encrypted Share";
+  return "Review";
+}
+
+function skeletonMessage(toolId: string | null) {
+  if (toolId === "diff") return "The session exists. The agent still needs to upload the diff and description.";
+  if (toolId === "present") return "The session exists. The agent still needs to upload the presentation.";
+  if (toolId === "playground") return "The session exists. The agent still needs to upload the playground HTML.";
+  if (toolId === "share") return "The session exists. The agent still needs to upload the encrypted document envelope.";
+  return "The session exists. The agent still needs to upload the review files or markdown.";
+}
 
 export default async function SessionPage({
   params,
@@ -12,6 +30,20 @@ export default async function SessionPage({
 }) {
   const { id } = await params;
   const session = SessionDO.getInstance(id);
+  const phase = await session.getSessionPhase();
+  const toolId = await session.getToolId();
+
+  if (phase === "awaiting_init") {
+    return (
+      <SessionAwaitingInit
+        title={titleForTool(toolId)}
+        sessionId={id}
+        message={skeletonMessage(toolId)}
+        toolId={toolId}
+      />
+    );
+  }
+
   const contentType = await session.getContentType();
   const isDone = await session.isDone();
 
@@ -58,7 +90,7 @@ export default async function SessionPage({
     );
   }
 
-  if (contentType === "present" || contentType === "remark") {
+  if (contentType === "present") {
     const data = await session.getContent();
     const threads: Thread[] = await session.getThreads();
     return (
@@ -66,6 +98,17 @@ export default async function SessionPage({
         sessionId={id}
         markdown={data?.content ?? ""}
         initialThreads={threads}
+        isDone={isDone}
+      />
+    );
+  }
+
+  if (contentType === "share") {
+    const data = await session.getContent();
+    return (
+      <EncryptedShareClient
+        sessionId={id}
+        payload={data?.content ?? ""}
         isDone={isDone}
       />
     );

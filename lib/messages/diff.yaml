@@ -7,14 +7,14 @@ diff_created: |
   Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
   Or just show the URL to the user (they cannot see this text).
 
-  Poll for the completed review (returns when they click Done):
-    curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
-
-  After code changes, resubmit the updated diff:
-    curl -s -X POST "{BASE_URL}/diff" \
-      -F sessionId={SESSION_ID} \
+  Submit the diff payload to this session:
+    curl -s -X POST "{BASE_URL}/diff/{SESSION_ID}" \
       -F description=@description.md \
       -F diff=@current.diff
+
+  That call waits for the reviewer and returns when they click Done.
+  Standalone poll is also available:
+    curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
 
   When the review is returned, address each numbered comment.
 

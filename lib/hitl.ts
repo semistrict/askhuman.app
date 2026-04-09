@@ -5,27 +5,15 @@ export type { Thread, Message };
 
 export const REST_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 export const HUMAN_CONNECT_TIMEOUT_MS = 5 * 1000;
+const POLL_INTERVAL_MS = 100;
 
 type PollStatus = "comments" | "timeout" | "done" | "error";
-type AgentConnectionKind =
-  | "plan_poll"
-  | "plan_reply"
-  | "diff_reply"
-  | "diff_poll"
-  | "file_poll"
-  | "file_reply"
-  | "playground_poll"
-  | "present_poll"
-  | "present_reply"
-  | "remark_poll"
-  | "remark_reply";
-
 function reviewUrl(baseUrl: string, sessionId: string): string {
   return `${baseUrl}/s/${sessionId}`;
 }
 
 function updateUrl(baseUrl: string, sessionId: string): string {
-  return `${baseUrl}/plan/${sessionId}/update`;
+  return `${baseUrl}/review/${sessionId}`;
 }
 
 function pollUrl(baseUrl: string, sessionId: string, prefix: string): string {
@@ -167,34 +155,62 @@ async function waitForPollResult(
     const threads = await session.getThreads();
     return formatPollResponse({ threads, done: true }, sessionId, baseUrl, prefix);
   }
-  if (!(await session.hasHumanConnected())) {
-    const { connected } = await session.waitForHumanConnection(HUMAN_CONNECT_TIMEOUT_MS);
-    if (!connected) {
+
+  const connectDeadline = Date.now() + HUMAN_CONNECT_TIMEOUT_MS;
+  while (!(await session.hasHumanConnected())) {
+    if (Date.now() >= connectDeadline) {
       return notConnectedResponse(sessionId, baseUrl, prefix);
     }
+    if (await session.isDone()) {
+      const threads = await session.getThreads();
+      return formatPollResponse({ threads, done: true }, sessionId, baseUrl, prefix);
+    }
+    await sleep(POLL_INTERVAL_MS);
   }
 
-  const result = await session.waitForComments(timeoutMs);
-  return formatPollResponse(result, sessionId, baseUrl, prefix);
+  const deadline = Date.now() + timeoutMs;
+  let disconnectedAt: number | null = null;
+
+  while (Date.now() < deadline) {
+    if (await session.isDone()) {
+      const threads = await session.getThreads();
+      return formatPollResponse({ threads, done: true }, sessionId, baseUrl, prefix);
+    }
+
+    if (await session.hasHumanConnected()) {
+      disconnectedAt = null;
+    } else if (disconnectedAt == null) {
+      disconnectedAt = Date.now();
+    } else if (Date.now() - disconnectedAt >= HUMAN_CONNECT_TIMEOUT_MS) {
+      return disconnectedResponse(sessionId, baseUrl, prefix);
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+  }
+
+  return formatPollResponse({ threads: [] }, sessionId, baseUrl, prefix);
 }
 
 export async function withTrackedAgentLongPoll<T>(
   request: Request,
   sessionId: string,
-  kind: AgentConnectionKind,
+  kind: string,
   run: () => Promise<T>
 ): Promise<T> {
   const session = SessionDO.getInstance(sessionId);
-  const agentId = await session.startAgentConnection({
+  const claim = await session.startAgentConnection({
     sessionId,
     endpoint: new URL(request.url).pathname,
     kind,
     userAgent: request.headers.get("user-agent"),
   });
+  if (!claim.ok) {
+    throw Object.assign(new Error(claim.message), { status: claim.status });
+  }
   try {
     return await run();
   } finally {
-    await session.endAgentConnection(agentId);
+    await session.endAgentConnection(claim.agentId);
   }
 }
 
@@ -229,6 +245,10 @@ export async function replyToComments(
       changePickupReminder(prefix, baseUrl, sessionId)
     ),
   };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function parseRepliesRequest(request: Request): Promise<ReplyInput[]> {
