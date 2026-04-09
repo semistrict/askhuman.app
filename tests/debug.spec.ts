@@ -3,9 +3,11 @@ import { expect, test } from "@playwright/test";
 const JSON_ACCEPT = { Accept: "application/json" };
 
 async function createPlanSession(request: { post: Function }) {
-  const res = await request.post("/plan", {
-    data: "# Debug target\n\nHello from the plan page.\n",
+  const res = await request.post("/review", {
     headers: JSON_ACCEPT,
+    multipart: {
+      "doc.md": "# Debug target\n\nHello from the file page.\n",
+    },
   });
   expect(res.status()).toBe(200);
   return await res.json();
@@ -18,7 +20,7 @@ test.describe("Debug Endpoints", () => {
   }) => {
     const { sessionId } = await createPlanSession(request);
     await page.goto(`/s/${sessionId}`);
-    await expect(page.getByText("Doc Review")).toBeVisible();
+    await expect(page.getByText("File Review")).toBeVisible();
 
     let tabId: string | null = null;
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -50,7 +52,7 @@ return {
     const result = await evalRes.json();
     expect(result.ok).toBe(true);
     expect(result.sessionId).toBe(sessionId);
-    expect(result.result.heading).toBe("Doc Review");
+    expect(result.result.heading).toBe("File Review");
     expect(result.result.path).toBe(`/s/${sessionId}`);
     expect(result.result.hasCommentButton).toBe(true);
   });
@@ -59,7 +61,7 @@ return {
     request,
   }) => {
     const { sessionId } = await createPlanSession(request);
-    const pollPromise = fetch(`http://localhost:15032/plan/${sessionId}/poll`, {
+    const pollPromise = fetch(`http://localhost:15032/review/${sessionId}/poll`, {
       headers: {
         Accept: "application/json",
         "User-Agent": "curl/8.7.1",
@@ -76,10 +78,10 @@ return {
         sessionId: string;
         kind: string;
         endpoint: string;
-      }>).find((agent) => agent.kind === "plan_poll");
+      }>).find((agent) => agent.kind === "file_poll");
       if (match) {
         agentId = match.agentId;
-        expect(match.endpoint).toBe(`/plan/${sessionId}/poll`);
+        expect(match.endpoint).toBe(`/review/${sessionId}/poll`);
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));

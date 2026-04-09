@@ -19,9 +19,21 @@ async function handleRootPlain(request: Request): Promise<Response> {
 Human-in-the-loop review tools for AI agents.
 Submit via curl, open the URL for the user, and poll for the completed review.
 
-## Doc review
+## Review
 
-  curl -s --data-binary @doc.md ${base}/plan
+Review a markdown doc:
+
+  curl -s -X POST ${base}/review \\
+    -F "doc.md=<doc.md"
+
+Review one or more code files:
+
+  curl -s -X POST ${base}/review \\
+    -F "src/main.ts=<src/main.ts" \\
+    -F "src/utils.ts=<src/utils.ts"
+
+Single markdown-file reviews return when the reviewer clicks Request Revision.
+Other review sessions return when they click Done.
 
 ## Diff review
 
@@ -29,11 +41,10 @@ Submit via curl, open the URL for the user, and poll for the completed review.
     -F description=@description.md \\
     -F diff=@current.diff
 
-## File review
+## Present
 
-  curl -s -X POST ${base}/files \\
-    -F "src/main.ts=<src/main.ts" \\
-    -F "src/utils.ts=<src/utils.ts"
+  curl -s -X POST ${base}/present \\
+    -F "markdown=<slides.md"
 
 ## Playground
 
@@ -42,12 +53,28 @@ Submit via curl, open the URL for the user, and poll for the completed review.
 
 Each response includes a sessionId, a review URL, and polling instructions.
 Open the URL for the same user you are already interacting with.
-Poll with GET .../{id}/poll -- doc review returns when the user clicks Request Revision; other flows return when they click Done.
+For large inputs, write them to a temporary file first and submit with
+\`-F "name=<path"\` or \`@path\` instead of inlining huge strings.
+For a cleaner reviewer window, prefer Chrome app mode:
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="URL" &
+Poll with GET .../{id}/poll. Single markdown-file reviews return when the user clicks Request Revision; other review flows return when they click Done.
 `;
 
   return new Response(text.endsWith("\n") ? text : `${text}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
+}
+
+function shouldServePlainRoot(request: Request): boolean {
+  const userAgent = request.headers.get("user-agent") || "";
+  const signatureAgent = request.headers.get("signature-agent") || "";
+
+  if (/^curl\//i.test(userAgent)) return true;
+  if (signatureAgent.trim() === "https://chatgpt.com") return true;
+  if (/\bClaude-User\b/i.test(userAgent)) return true;
+  if (/\bChatGPT-User\b/i.test(userAgent)) return true;
+
+  return false;
 }
 
 interface ExecutionContext {
@@ -91,10 +118,13 @@ export default {
       }, allowedWidths);
     }
 
+    if (url.pathname === "/llms.txt" && request.method === "GET") {
+      return handleRootPlain(request);
+    }
+
     // https://askhuman.app -> instructions (plain text for curl, HTML for browsers)
     if (url.pathname === "/" && request.method === "GET") {
-      const ua = request.headers.get("user-agent") || "";
-      if (/^curl\//i.test(ua)) {
+      if (shouldServePlainRoot(request)) {
         return handleRootPlain(request);
       }
     }

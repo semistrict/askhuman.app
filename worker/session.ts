@@ -11,6 +11,9 @@ export interface Thread {
   hunk_id: string | null;
   line: number | null;
   file_path: string | null;
+  location_label: string | null;
+  selection_text: string | null;
+  selection_context: string | null;
   outdated: boolean;
   created_at: number;
   messages: Message[];
@@ -120,6 +123,7 @@ type ConnectedTab = {
   url: string | null;
   title: string | null;
   userAgent: string | null;
+  reviewerName: string | null;
   connectedAt: number;
   lastSeenAt: number;
   connected: boolean;
@@ -141,6 +145,7 @@ type TabHelloMessage = {
   url: string;
   title: string;
   userAgent: string;
+  reviewerName: string;
 };
 
 type DebugEvalResultMessage = {
@@ -171,6 +176,9 @@ export class SessionDO extends DurableObject {
         CREATE TABLE IF NOT EXISTS threads (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           line INTEGER,
+          location_label TEXT,
+          selection_text TEXT,
+          selection_context TEXT,
           created_at INTEGER
         );
         CREATE TABLE IF NOT EXISTS messages (
@@ -209,6 +217,7 @@ export class SessionDO extends DurableObject {
           url TEXT,
           title TEXT,
           user_agent TEXT,
+          reviewer_name TEXT,
           connected_at INTEGER NOT NULL,
           last_seen_at INTEGER NOT NULL,
           connected INTEGER NOT NULL
@@ -245,6 +254,26 @@ export class SessionDO extends DurableObject {
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN outdated INTEGER NOT NULL DEFAULT 0");
+      } catch {
+        // Column already exists
+      }
+      try {
+        ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN location_label TEXT");
+      } catch {
+        // Column already exists
+      }
+      try {
+        ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN selection_text TEXT");
+      } catch {
+        // Column already exists
+      }
+      try {
+        ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN selection_context TEXT");
+      } catch {
+        // Column already exists
+      }
+      try {
+        ctx.storage.sql.exec("ALTER TABLE tabs ADD COLUMN reviewer_name TEXT");
       } catch {
         // Column already exists
       }
@@ -341,11 +370,12 @@ export class SessionDO extends DurableObject {
       url: string | null;
       title: string | null;
       user_agent: string | null;
+      reviewer_name: string | null;
       connected_at: number;
       last_seen_at: number;
       connected: number;
     }>(
-      "SELECT url, title, user_agent, connected_at, last_seen_at, connected FROM tabs WHERE tab_id = ? LIMIT 1",
+      "SELECT url, title, user_agent, reviewer_name, connected_at, last_seen_at, connected FROM tabs WHERE tab_id = ? LIMIT 1",
       tabId
     ).toArray()[0];
 
@@ -355,6 +385,7 @@ export class SessionDO extends DurableObject {
       url: patch.url ?? existing?.url ?? null,
       title: patch.title ?? existing?.title ?? null,
       userAgent: patch.userAgent ?? existing?.user_agent ?? null,
+      reviewerName: patch.reviewerName ?? existing?.reviewer_name ?? null,
       connectedAt: patch.connectedAt ?? existing?.connected_at ?? now,
       lastSeenAt: now,
       connected: patch.connected ?? (existing ? existing.connected === 1 : true),
@@ -362,12 +393,13 @@ export class SessionDO extends DurableObject {
 
     this.ctx.storage.sql.exec(
       `
-        INSERT INTO tabs (tab_id, url, title, user_agent, connected_at, last_seen_at, connected)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tabs (tab_id, url, title, user_agent, reviewer_name, connected_at, last_seen_at, connected)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tab_id) DO UPDATE SET
           url = excluded.url,
           title = excluded.title,
           user_agent = excluded.user_agent,
+          reviewer_name = excluded.reviewer_name,
           connected_at = excluded.connected_at,
           last_seen_at = excluded.last_seen_at,
           connected = excluded.connected
@@ -376,6 +408,7 @@ export class SessionDO extends DurableObject {
       record.url,
       record.title,
       record.userAgent,
+      record.reviewerName,
       record.connectedAt,
       record.lastSeenAt,
       record.connected ? 1 : 0
@@ -400,12 +433,13 @@ export class SessionDO extends DurableObject {
       url: string | null;
       title: string | null;
       user_agent: string | null;
+      reviewer_name: string | null;
       connected_at: number;
       last_seen_at: number;
       connected: number;
     }>(
       `
-        SELECT tab_id, url, title, user_agent, connected_at, last_seen_at, connected
+        SELECT tab_id, url, title, user_agent, reviewer_name, connected_at, last_seen_at, connected
         FROM tabs
         WHERE connected = 1
         ORDER BY connected_at ASC, tab_id ASC
@@ -417,6 +451,7 @@ export class SessionDO extends DurableObject {
       url: row.url,
       title: row.title,
       userAgent: row.user_agent,
+      reviewerName: row.reviewer_name,
       connectedAt: row.connected_at,
       lastSeenAt: row.last_seen_at,
       connected: row.connected === 1,
@@ -626,16 +661,16 @@ export class SessionDO extends DurableObject {
     return rows.length > 0 ? { content: rows[0].markdown, created_at: rows[0].created_at } : null;
   }
 
-  async setContentType(type: "plan" | "diff" | "files" | "playground"): Promise<void> {
+  async setContentType(type: "plan" | "diff" | "files" | "playground" | "present"): Promise<void> {
     await this.touchSession();
-    const value = type === "diff" ? 1 : type === "files" ? 2 : type === "playground" ? 3 : 0;
+    const value = type === "diff" ? 1 : type === "files" ? 2 : type === "playground" ? 3 : type === "present" ? 4 : 0;
     this.ctx.storage.sql.exec(
       "INSERT INTO state (key, value) VALUES ('content_type', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       value
     );
   }
 
-  async getContentType(): Promise<"plan" | "diff" | "files" | "playground"> {
+  async getContentType(): Promise<"plan" | "diff" | "files" | "playground" | "present"> {
     const rows = this.ctx.storage.sql.exec<{ value: number }>(
       "SELECT value FROM state WHERE key = 'content_type'"
     ).toArray();
@@ -643,7 +678,25 @@ export class SessionDO extends DurableObject {
     if (rows[0].value === 1) return "diff";
     if (rows[0].value === 2) return "files";
     if (rows[0].value === 3) return "playground";
+    if (rows[0].value === 4) return "present";
     return "plan";
+  }
+
+  async setReviewMode(mode: "doc" | "files"): Promise<void> {
+    await this.touchSession();
+    const value = mode === "doc" ? 1 : 0;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('review_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  async getReviewMode(): Promise<"doc" | "files"> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'review_mode'"
+    ).toArray();
+    if (rows.length === 0) return "files";
+    return rows[0].value === 1 ? "doc" : "files";
   }
 
   async setResult(text: string): Promise<void> {
@@ -750,12 +803,22 @@ export class SessionDO extends DurableObject {
     );
   }
 
+  async markAllThreadsOutdated(): Promise<void> {
+    await this.touchSession();
+    this.ctx.storage.sql.exec("UPDATE threads SET outdated = 1");
+  }
+
   private async createStandaloneThread(
     role: string,
     text: string,
     line: number | null = null,
     hunkId?: string | null,
-    filePath?: string | null
+    filePath?: string | null,
+    metadata?: {
+      locationLabel?: string | null;
+      selectionText?: string | null;
+      selectionContext?: string | null;
+    }
   ): Promise<Thread> {
     await this.touchSession();
     const sql = this.ctx.storage.sql;
@@ -765,8 +828,14 @@ export class SessionDO extends DurableObject {
     }
 
     sql.exec(
-      "INSERT INTO threads (line, hunk_id, file_path, created_at) VALUES (?, ?, ?, ?)",
-      line, hunkId ?? null, filePath ?? null, now
+      "INSERT INTO threads (line, hunk_id, file_path, location_label, selection_text, selection_context, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      line,
+      hunkId ?? null,
+      filePath ?? null,
+      metadata?.locationLabel ?? null,
+      metadata?.selectionText ?? null,
+      metadata?.selectionContext ?? null,
+      now
     );
     const threadId = sql.exec<{ id: number }>(
       "SELECT last_insert_rowid() as id"
@@ -785,6 +854,9 @@ export class SessionDO extends DurableObject {
       hunk_id: hunkId ?? null,
       line,
       file_path: filePath ?? null,
+      location_label: metadata?.locationLabel ?? null,
+      selection_text: metadata?.selectionText ?? null,
+      selection_context: metadata?.selectionContext ?? null,
       outdated: false,
       created_at: now,
       messages: [{ id: messageId, thread_id: threadId, role, text, created_at: now }],
@@ -794,8 +866,18 @@ export class SessionDO extends DurableObject {
     return thread;
   }
 
-  async createThread(line: number | null, text: string, hunkId?: string | null, filePath?: string | null): Promise<Thread> {
-    return this.createStandaloneThread("human", text, line, hunkId, filePath);
+  async createThread(
+    line: number | null,
+    text: string,
+    hunkId?: string | null,
+    filePath?: string | null,
+    metadata?: {
+      locationLabel?: string | null;
+      selectionText?: string | null;
+      selectionContext?: string | null;
+    }
+  ): Promise<Thread> {
+    return this.createStandaloneThread("human", text, line, hunkId, filePath, metadata);
   }
 
   async createAgentThread(text: string): Promise<Thread> {
@@ -922,9 +1004,11 @@ export class SessionDO extends DurableObject {
     const sql = this.ctx.storage.sql;
     const threadRows = sql.exec<{
       id: number; hunk_id: string | null; line: number | null;
-      file_path: string | null; outdated: number; created_at: number;
+      file_path: string | null; location_label: string | null;
+      selection_text: string | null; selection_context: string | null;
+      outdated: number; created_at: number;
     }>(
-      "SELECT id, hunk_id, line, file_path, outdated, created_at FROM threads ORDER BY id"
+      "SELECT id, hunk_id, line, file_path, location_label, selection_text, selection_context, outdated, created_at FROM threads ORDER BY id"
     ).toArray();
 
     const threads: Thread[] = [];
@@ -938,6 +1022,9 @@ export class SessionDO extends DurableObject {
         hunk_id: t.hunk_id,
         line: t.line,
         file_path: t.file_path,
+        location_label: t.location_label,
+        selection_text: t.selection_text,
+        selection_context: t.selection_context,
         outdated: t.outdated === 1,
         created_at: t.created_at,
         messages,
@@ -1166,6 +1253,7 @@ export class SessionDO extends DurableObject {
         url: data.url,
         title: data.title,
         userAgent: data.userAgent,
+        reviewerName: data.reviewerName,
         connected: true,
       });
       return;

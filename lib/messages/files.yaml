@@ -1,5 +1,28 @@
+file_doc_created: |
+  Review session created for markdown file {FILE_PATH}.
+
+  Open the review page for the user. Try Chrome app mode for a
+  clean window:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
+  Or just show the URL to the user (they cannot see this text).
+
+  Poll for feedback (returns when the reviewer clicks Request Revision):
+    curl -s "{BASE_URL}/review/{SESSION_ID}/poll"
+
+  When feedback is returned, upload the revised markdown file:
+    curl -s -X POST "{BASE_URL}/review" \
+      -F sessionId={SESSION_ID} \
+      -F "{FILE_PATH}=<{FILE_PATH}"
+
+  To include a general response for the reviewer on update:
+    curl -s -X POST "{BASE_URL}/review" \
+      -F sessionId={SESSION_ID} \
+      -F "{FILE_PATH}=<{FILE_PATH}" \
+      -F 'response=Addressed the requested revisions.'
+
 file_created: |
-  File review session created with {FILE_COUNT} file(s).
+  Review session created with {FILE_COUNT} file(s).
 
   Open the review page for the user. Try Chrome app mode for a
   clean window:
@@ -8,10 +31,10 @@ file_created: |
   Or just show the URL to the user (they cannot see this text).
 
   Poll for the completed review (returns when they click Done):
-    curl -s "{BASE_URL}/files/{SESSION_ID}/poll"
+    curl -s "{BASE_URL}/review/{SESSION_ID}/poll"
 
   After code changes, re-upload all files:
-    curl -s -X POST "{BASE_URL}/files" \
+    curl -s -X POST "{BASE_URL}/review" \
       -F sessionId={SESSION_ID} \
       -F "path/to/file.ts=<path/to/file.ts"
 
@@ -19,11 +42,28 @@ file_created: |
   When the review is returned, address each numbered comment.
 
 file_updated: >-
-  Files updated ({FILE_COUNT} file(s)). Comments on removed files
+  Review updated with {FILE_COUNT} file(s). Comments on removed files
   are now marked outdated. Continue polling for new comments.
 
+file_doc_done: |-
+  Feedback is ready. Address each numbered comment below, then upload the
+  updated markdown file:
+    curl -s -X POST {BASE_URL}/review \
+      -F sessionId={SESSION_ID} \
+      -F "{FILE_PATH}=<{FILE_PATH}"
+
+  To include a general response for the reviewer:
+    curl -s -X POST {BASE_URL}/review \
+      -F sessionId={SESSION_ID} \
+      -F "{FILE_PATH}=<{FILE_PATH}" \
+      -F 'response=Addressed the requested revisions.'
+
+file_doc_updated: >-
+  Markdown file updated ({FILE_PATH}). The reviewer can comment on the new
+  revision.
+
 file_already_done: >-
-  This review session is already complete. Create a new file review
+  This review session is already complete. Create a new review
   session instead.
 
 file_no_files: >-

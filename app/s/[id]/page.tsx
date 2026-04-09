@@ -1,9 +1,9 @@
 import { SessionDO } from "@/worker/session";
 import type { Thread } from "@/worker/session";
-import { ReviewClient } from "./review-client";
 import { DiffReviewClient } from "./diff-review-client";
 import { FileReviewClient } from "./file-review-client";
 import { PlaygroundClient } from "./playground-client";
+import { PresentClient } from "./remark-client";
 
 export default async function SessionPage({
   params,
@@ -33,12 +33,14 @@ export default async function SessionPage({
   if (contentType === "files") {
     const files = await session.getAllFiles();
     const threads: Thread[] = await session.getThreads();
+    const reviewMode = await session.getReviewMode();
     return (
       <FileReviewClient
         sessionId={id}
         files={files}
         initialThreads={threads}
         isDone={isDone}
+        reviewMode={reviewMode}
       />
     );
   }
@@ -56,6 +58,19 @@ export default async function SessionPage({
     );
   }
 
+  if (contentType === "present" || contentType === "remark") {
+    const data = await session.getContent();
+    const threads: Thread[] = await session.getThreads();
+    return (
+      <PresentClient
+        sessionId={id}
+        markdown={data?.content ?? ""}
+        initialThreads={threads}
+        isDone={isDone}
+      />
+    );
+  }
+
   const data = await session.getContent();
   if (!data) {
     return (
@@ -66,14 +81,14 @@ export default async function SessionPage({
   }
 
   const threads: Thread[] = await session.getThreads();
-  const lines = data.content.split("\n");
 
   return (
-    <ReviewClient
+    <FileReviewClient
       sessionId={id}
-      planLines={lines}
+      files={[{ path: "doc.md", content: data.content }]}
       initialThreads={threads}
-      isProcessing={isDone}
+      isDone={isDone}
+      reviewMode="doc"
     />
   );
 }

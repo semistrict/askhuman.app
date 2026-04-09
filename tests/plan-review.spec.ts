@@ -22,16 +22,18 @@ async function createDocSession(
   request: { post: Function },
   markdown: string = PLAN_MARKDOWN
 ) {
-  const res = await request.post("/plan", {
-    data: markdown,
-    headers: { "Content-Type": "text/markdown", ...JSON_ACCEPT },
+  const res = await request.post("/review", {
+    headers: JSON_ACCEPT,
+    multipart: {
+      "doc.md": markdown,
+    },
   });
   expect(res.status()).toBe(200);
   return await res.json();
 }
 
 async function beginDocPoll(sessionId: string) {
-  return fetch(`http://localhost:15032/plan/${sessionId}/poll`, {
+  return fetch(`http://localhost:15032/review/${sessionId}/poll`, {
     headers: {
       Accept: "application/json",
       "User-Agent": "curl/8.7.1",
@@ -39,7 +41,7 @@ async function beginDocPoll(sessionId: string) {
   });
 }
 
-test.describe("Doc Review", () => {
+test.describe("Markdown File Review", () => {
   let sessionId: string;
 
   test.beforeAll(async ({ request }) => {
@@ -56,7 +58,7 @@ test.describe("Doc Review", () => {
   test("human views doc", async ({ page }) => {
     await page.goto(`/s/${sessionId}`);
     await expect(page.locator("text=Architecture Doc").first()).toBeVisible();
-    await expect(page.getByText("Doc Review")).toBeVisible();
+    await expect(page.getByText("File Review")).toBeVisible();
     await expect(page.locator("button >> text=1").first()).toBeVisible();
   });
 
@@ -134,14 +136,14 @@ test.describe("Doc Review", () => {
     expect(body.state).toBe("agent_not_polling");
     expect(body.message).toContain("Agent is not polling");
     expect(body.clipboardText).toContain("Please revise the summary.");
-    expect(body.clipboardText).toContain(`/plan/${id}/update`);
-    expect(body.clipboardText).toContain(`poll again with \`curl -s http://localhost:15032/plan/${id}/poll\`.`);
+    expect(body.clipboardText).toContain(`curl -s -X POST http://localhost:15032/review`);
+    expect(body.clipboardText).toContain(`poll again with \`curl -s http://localhost:15032/review/${id}/poll\`.`);
   });
 
   test("poll returns error if the human has not connected", async ({ request }) => {
     const { sessionId: id, url } = await createDocSession(request, "# Waiting\nNo browser yet.");
 
-    const res = await request.get(`/plan/${id}/poll`, {
+    const res = await request.get(`/review/${id}/poll`, {
       headers: JSON_ACCEPT,
       timeout: 10000,
     });
@@ -158,7 +160,7 @@ test.describe("Doc Review", () => {
     const { sessionId: id } = await createDocSession(request, "# Waiting\nDisconnect test.");
 
     await page.goto(`/s/${id}`);
-    await expect(page.getByText("Doc Review")).toBeVisible();
+    await expect(page.getByText("File Review")).toBeVisible();
 
     const pollPromise = beginDocPoll(id);
 
@@ -237,7 +239,7 @@ test.describe("Doc Review", () => {
       data: { line: 3, text: "Fix this line" },
     });
 
-    const pollPromise = fetch(`http://localhost:15032/plan/${id}/poll`);
+    const pollPromise = fetch(`http://localhost:15032/review/${id}/poll`);
     await page.waitForTimeout(150);
     await request.post(`/s/${id}/request-revision`);
 
@@ -267,10 +269,10 @@ test.describe("Doc Review", () => {
     await expect(page.getByText("Agent processing feedback...")).toBeVisible();
     await expect(page.getByRole("button", { name: "Request Revision" })).not.toBeVisible();
 
-    const updateRes = await request.post(`/plan/${id}/update`, {
-      headers: JSON_ACCEPT,
+    const updateRes = await request.post(`/review`, {
       multipart: {
-        markdown: "# Updated Doc\n\nFresh revision.",
+        sessionId: id,
+        "doc.md": "# Updated Doc\n\nFresh revision.",
         response: "Updated the introduction and tightened the structure.",
       },
     });
@@ -300,8 +302,8 @@ test.describe("Doc Review", () => {
 
     const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
     expect(clipboardText).toContain("Rewrite the intro");
-    expect(clipboardText).toContain(`/plan/${id}/update`);
-    expect(clipboardText).toContain(`poll again with \`curl -s http://localhost:15032/plan/${id}/poll\`.`);
+    expect(clipboardText).toContain(`curl -s -X POST http://localhost:15032/review`);
+    expect(clipboardText).toContain(`poll again with \`curl -s http://localhost:15032/review/${id}/poll\`.`);
   });
 
   test("updated doc only returns new human comments on the next request", async ({ page, request }) => {
@@ -318,9 +320,8 @@ test.describe("Doc Review", () => {
     expect(firstBody.threads).toHaveLength(1);
     expect(firstBody.threads[0].messages[0].text).toBe("Old comment");
 
-    await request.post(`/plan/${id}/update`, {
-      headers: JSON_ACCEPT,
-      multipart: { markdown: "# Version 2" },
+    await request.post(`/review`, {
+      multipart: { sessionId: id, "doc.md": "# Version 2" },
     });
     await expect(page.locator("text=Version 2")).toBeVisible();
 
@@ -335,15 +336,15 @@ test.describe("Doc Review", () => {
     expect(secondBody.threads[0].messages[0].text).toBe("New comment");
   });
 
-  test("plan endpoint returns markdown by default", async ({ request }) => {
-    const res = await request.post("/plan", {
+  test("review endpoint returns markdown by default for raw markdown submission", async ({ request }) => {
+    const res = await request.post("/review", {
       data: "# Markdown Default\n\nBody.",
       headers: { "Content-Type": "text/markdown" },
     });
 
     expect(res.status()).toBe(200);
     expect(res.headers()["content-type"]).toContain("text/markdown");
-    await expect(res.text()).resolves.toContain("# Doc Review Session");
+    await expect(res.text()).resolves.toContain("# File Review Session");
   });
 
   test("404 for nonexistent session page", async ({ page }) => {

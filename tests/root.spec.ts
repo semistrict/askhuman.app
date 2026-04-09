@@ -1,6 +1,37 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Root Page", () => {
+  test("serves plain-text instructions to fetch-style agents", async ({ request }) => {
+    const cases = [
+      { headers: { "User-Agent": "Claude-User/1.0" } },
+      { headers: { "User-Agent": "ChatGPT-User/1.0" } },
+      { headers: { "Signature-Agent": "https://chatgpt.com" } },
+    ];
+
+    for (const testCase of cases) {
+      const res = await request.get("/", { headers: testCase.headers });
+      expect(res.status()).toBe(200);
+      expect(res.headers()["content-type"]).toContain("text/plain");
+      const text = await res.text();
+      expect(text).toContain("# askhuman.app");
+      expect(text).toContain("/review");
+      expect(text).toContain("/present");
+      expect(text).toContain("temporary file");
+      expect(text).toContain("Google Chrome.app");
+    }
+  });
+
+  test("llms.txt matches the root plain-text instructions", async ({ request }) => {
+    const rootRes = await request.get("/", {
+      headers: { "User-Agent": "Claude-User/1.0" },
+    });
+    const llmsRes = await request.get("/llms.txt");
+
+    expect(llmsRes.status()).toBe(200);
+    expect(llmsRes.headers()["content-type"]).toContain("text/plain");
+    await expect(llmsRes.text()).resolves.toBe(await rootRes.text());
+  });
+
   test("footer exposes settings next to github and persists the toggle", async ({ page }) => {
     await page.goto("/");
 

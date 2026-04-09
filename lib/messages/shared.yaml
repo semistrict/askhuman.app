@@ -28,22 +28,36 @@ route_diff_get: >-
   POST a diff body to create a diff review session
 
 route_plan_get: >-
-  POST a markdown body to create a doc review session
+  POST a markdown body to create a single-file markdown review session.
+  Prefer POST /review with a markdown file field.
 
 route_diff_reply_get: >-
   POST replies to this endpoint
 
 route_plan_reply_get: >-
-  POST replies to this endpoint, or use /plan/{id}/update to submit a revised doc
+  POST replies to this endpoint, or use /review with sessionId to upload a revised markdown file.
+  /plan is a compatibility alias.
 
 route_plan_update_get: >-
-  POST updated markdown to this endpoint to revise the current doc review session
+  POST updated markdown to this endpoint to revise the current markdown review session.
+  Prefer POST /review with sessionId.
 
 route_files_get: >-
-  POST files to create a file review session
+  POST files to create a review session. /files is a compatibility alias;
+  prefer POST /review.
+
+route_review_get: >-
+  POST files to create a review session
+
+route_present_get: >-
+  POST markdown to create a presentation review session.
+
+route_present_reply_get: >-
+  POST replies to this endpoint
 
 route_files_reply_get: >-
-  POST replies to this endpoint
+  POST replies to this endpoint. /files/{id}/reply is a compatibility alias;
+  prefer /review/{id}/reply.
 
 # Form field validation
 

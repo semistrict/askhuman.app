@@ -5,6 +5,7 @@ import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { SessionChrome } from "@/components/session-chrome";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import { handleDebugSocketMessage, sendTabHello } from "@/lib/debug-tab-client";
 
@@ -96,18 +97,7 @@ export function PlaygroundClient({
   const sorted = [...threads].sort((a, b) => a.created_at - b.created_at);
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col">
-      <header className="border-b border-border px-6 py-3 shrink-0">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold tracking-tight font-mono">
-            Playground
-          </h1>
-          <Badge variant="outline" className="font-mono text-xs">
-            {sessionId.slice(0, 8)}
-          </Badge>
-        </div>
-      </header>
-
+    <SessionChrome title="Playground" sessionId={sessionId}>
       <div className="flex flex-1 overflow-hidden">
         {/* Playground iframe */}
         <main className="flex-1 overflow-hidden">
@@ -211,6 +201,6 @@ export function PlaygroundClient({
           </div>
         </aside>
       </div>
-    </div>
+    </SessionChrome>
   );
 }

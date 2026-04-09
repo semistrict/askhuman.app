@@ -3,6 +3,7 @@ import planYaml from "@/lib/messages/plan.yaml?raw";
 import diffYaml from "@/lib/messages/diff.yaml?raw";
 import filesYaml from "@/lib/messages/files.yaml?raw";
 import playgroundYaml from "@/lib/messages/playground.yaml?raw";
+import presentYaml from "@/lib/messages/present.yaml?raw";
 import sharedYaml from "@/lib/messages/shared.yaml?raw";
 
 const parsed: Record<string, string> = {
@@ -11,6 +12,7 @@ const parsed: Record<string, string> = {
   ...(parse(diffYaml) as Record<string, string>),
   ...(parse(filesYaml) as Record<string, string>),
   ...(parse(playgroundYaml) as Record<string, string>),
+  ...(parse(presentYaml) as Record<string, string>),
 };
 
 export function msg(

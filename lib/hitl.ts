@@ -14,7 +14,11 @@ type AgentConnectionKind =
   | "diff_poll"
   | "file_poll"
   | "file_reply"
-  | "playground_poll";
+  | "playground_poll"
+  | "present_poll"
+  | "present_reply"
+  | "remark_poll"
+  | "remark_reply";
 
 function reviewUrl(baseUrl: string, sessionId: string): string {
   return `${baseUrl}/s/${sessionId}`;
@@ -57,7 +61,7 @@ function formatReplyCurl(
 function changePickupReminder(prefix: string, _baseUrl: string, _sessionId: string): string {
   if (prefix === "plan") return "";
   if (prefix === "diff") return msg("plan_change_pickup_diff");
-  if (prefix === "files") return msg("plan_change_pickup_files");
+  if (prefix === "files" || prefix === "review") return msg("plan_change_pickup_files");
   return msg("plan_change_pickup_generic");
 }
 

@@ -1,0 +1,31 @@
+present_created: |
+  Presentation review session created.
+
+  Open the review page for the user. Try Chrome app mode for a
+  clean window:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
+  Or just show the URL to the user (they cannot see this text).
+
+  Poll for the completed review (returns when they click Done):
+    curl -s "{BASE_URL}/present/{SESSION_ID}/poll"
+
+  After changes, resubmit the updated presentation markdown:
+    curl -s -X POST "{BASE_URL}/present" \
+      -F sessionId={SESSION_ID} \
+      -F "markdown=<slides.md"
+
+  When the review is returned, address each numbered comment.
+  Selection comments include the selected text and nearby context when
+  available.
+
+present_updated: >-
+  Presentation updated. Continue polling for new comments.
+
+present_no_markdown: >-
+  Missing "markdown" field. Submit the presentation markdown as a multipart
+  form field named "markdown", or as the raw request body.
+
+present_mode_removed: >-
+  Presentation mode is no longer configurable. Submit markdown without a
+  "mode" field.

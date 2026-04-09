@@ -131,8 +131,12 @@ export function CommentPanel({
         {sorted.map((thread) => {
           const first = thread.messages[0];
           const isInline = thread.hunk_id != null || thread.line != null;
-          const locationLabel = thread.file_path
-            ? `${basename(thread.file_path)}:${thread.line}`
+          const locationLabel = thread.location_label
+            ? thread.location_label
+            : thread.file_path && thread.line != null
+              ? `${basename(thread.file_path)}:${thread.line}`
+            : thread.file_path
+              ? basename(thread.file_path)
             : thread.hunk_id != null
               ? `H${thread.hunk_id}:${thread.line}`
               : thread.line != null

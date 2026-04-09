@@ -5,6 +5,7 @@ import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { SessionChrome } from "@/components/session-chrome";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
 import { MarkdownLine } from "@/components/markdown-line";
@@ -321,18 +322,7 @@ export function DiffReviewClient({
   }
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col">
-      <header className="border-b border-border px-6 py-4 shrink-0">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold tracking-tight font-mono">
-            Diff Review
-          </h1>
-          <Badge variant="outline" className="font-mono text-xs">
-            {sessionId.slice(0, 8)}
-          </Badge>
-        </div>
-      </header>
-
+    <SessionChrome title="Diff Review" sessionId={sessionId}>
       <div className="flex flex-1 overflow-hidden">
         {/* Table of contents */}
         <aside className="shrink-0 border-r border-border flex flex-col" style={{ width: fileListWidth }}>
@@ -556,7 +546,7 @@ export function DiffReviewClient({
           />
         </aside>
       </div>
-    </div>
+    </SessionChrome>
   );
 }
 

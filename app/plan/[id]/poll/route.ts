@@ -2,8 +2,8 @@ import {
   withTrackedAgentLongPoll,
 } from "@/lib/hitl";
 import { negotiatedResponse, pollMarkdown, type ContentContext } from "@/lib/rest-response";
-import { SessionDO } from "@/worker/session";
 import { pollDocReview } from "@/lib/plan-review";
+import { fileReviewPollContext } from "@/lib/file-review";
 
 export async function GET(
   request: Request,
@@ -17,12 +17,7 @@ export async function GET(
 
   let context: ContentContext | undefined;
   if (result.threads.length > 0) {
-    const session = SessionDO.getInstance(id);
-    const data = await session.getContent();
-    if (data) {
-      context = new Map();
-      context.set("__plan__", data.content.split("\n"));
-    }
+    context = await fileReviewPollContext(id);
   }
 
   return negotiatedResponse(request, result, pollMarkdown({ ...result, context }));

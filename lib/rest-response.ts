@@ -29,13 +29,20 @@ function formatThread(
     hunk_id?: string | null;
     file_path?: string | null;
     line?: number | null;
+    location_label?: string | null;
+    selection_text?: string | null;
+    selection_context?: string | null;
     outdated?: boolean;
     messages: { role: string; text: string }[];
   },
   context?: ContentContext
 ): string {
-  const location = thread.file_path
-    ? `${thread.file_path}:${thread.line}`
+  const location = thread.location_label
+    ? thread.location_label
+    : thread.file_path && thread.line != null
+      ? `${thread.file_path}:${thread.line}`
+    : thread.file_path
+      ? thread.file_path
     : thread.hunk_id != null && thread.line != null
       ? `H${thread.hunk_id}:${thread.line}`
       : thread.line != null
@@ -46,6 +53,12 @@ function formatThread(
   const ctx = getContextLines(context, thread);
   if (ctx) {
     lines.push(ctx);
+  }
+  if (thread.selection_text) {
+    lines.push(`selection: ${escapeMarkdown(thread.selection_text)}`);
+  }
+  if (thread.selection_context) {
+    lines.push(`context: ${escapeMarkdown(thread.selection_context)}`);
   }
   for (const message of thread.messages) {
     lines.push(`${message.role}: ${escapeMarkdown(message.text)}`);
@@ -91,7 +104,7 @@ export function planSubmitMarkdown(result: {
   instructions: string;
 }): string {
   return [
-    "# Doc Review Session",
+    "# File Review Session",
     "",
     `sessionId: ${result.sessionId}`,
     `url: ${result.url}`,
@@ -108,7 +121,7 @@ export function planUpdateMarkdown(result: {
   message?: string;
 }): string {
   return [
-    "# Doc Updated",
+    "# Files Updated",
     "",
     `sessionId: ${result.sessionId}`,
     `url: ${result.url}`,
@@ -200,6 +213,34 @@ export function playgroundUpdateMarkdown(result: {
   ].join("\n");
 }
 
+export function presentSubmitMarkdown(result: {
+  sessionId: string;
+  url: string;
+  message?: string;
+}): string {
+  return [
+    "# Presentation Session",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    ...(result.message ? ["", "## Next Steps", "", result.message] : []),
+  ].join("\n");
+}
+
+export function presentUpdateMarkdown(result: {
+  sessionId: string;
+  url: string;
+  message?: string;
+}): string {
+  return [
+    "# Presentation Updated",
+    "",
+    `sessionId: ${result.sessionId}`,
+    `url: ${result.url}`,
+    ...(result.message ? ["", result.message] : []),
+  ].join("\n");
+}
+
 export function playgroundPollMarkdown(result: {
   status: "comments" | "timeout" | "done" | "error";
   threads: { id: number; messages: { role: string; text: string }[] }[];
@@ -225,6 +266,9 @@ export function pollMarkdown(result: {
     hunk_id?: string | null;
     file_path?: string | null;
     line?: number | null;
+    location_label?: string | null;
+    selection_text?: string | null;
+    selection_context?: string | null;
     outdated?: boolean;
     messages: { role: string; text: string }[];
   }[];
@@ -280,6 +324,7 @@ export function debugTabsMarkdown(result: {
     url: string | null;
     title: string | null;
     userAgent: string | null;
+    reviewerName?: string | null;
     connectedAt: number;
     lastSeenAt: number;
   }[];
@@ -292,6 +337,7 @@ export function debugTabsMarkdown(result: {
       "",
       `## ${tab.tabId}`,
       `sessionId: ${tab.sessionId}`,
+      `reviewerName: ${tab.reviewerName ?? ""}`,
       `url: ${tab.url ?? ""}`,
       `title: ${tab.title ?? ""}`,
       `userAgent: ${tab.userAgent ?? ""}`,

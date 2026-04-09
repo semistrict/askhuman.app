@@ -5,6 +5,7 @@ import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { SessionChrome } from "@/components/session-chrome";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
 import { MarkdownLine } from "@/components/markdown-line";
@@ -93,6 +94,7 @@ interface Props {
   files: ServerFile[];
   initialThreads: Thread[];
   isDone: boolean;
+  reviewMode?: "files" | "doc";
 }
 
 export function FileReviewClient({
@@ -100,6 +102,7 @@ export function FileReviewClient({
   files,
   initialThreads,
   isDone: initialIsDone,
+  reviewMode = "files",
 }: Props) {
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [selectedFile, setSelectedFile] = useState<string>(files[0]?.path ?? "");
@@ -107,9 +110,13 @@ export function FileReviewClient({
   const [newCommentText, setNewCommentText] = useState("");
   const [panelCommentText, setPanelCommentText] = useState("");
   const [isDone, setIsDone] = useState(initialIsDone);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [fileListWidth, setFileListWidth] = usePersistedWidth("file-review-file-list-width", 224);
-  const [commentsWidth, setCommentsWidth] = usePersistedWidth("file-review-comments-width", 384);
+  const [commentsWidth, setCommentsWidth] = usePersistedWidth(
+    reviewMode === "doc" ? "doc-review-comments-width" : "file-review-comments-width",
+    384
+  );
 
   const filesByPath = useMemo(
     () => new Map(files.map((f) => [f.path, f])),
@@ -121,8 +128,11 @@ export function FileReviewClient({
     () => currentFile?.content.split("\n") ?? [],
     [currentFile]
   );
+  const isSingleFile = files.length === 1;
+  const isDocReview = reviewMode === "doc";
+  const isMarkdownFile = currentFile ? /\.md$/i.test(currentFile.path) : false;
   const currentLanguage = useMemo(
-    () => selectedFile ? detectLanguage(selectedFile) : null,
+    () => (selectedFile && !/\.md$/i.test(selectedFile)) ? detectLanguage(selectedFile) : null,
     [selectedFile]
   );
 
@@ -141,14 +151,15 @@ export function FileReviewClient({
   const lineThreads = useMemo(() => {
     const map = new Map<number, Thread[]>();
     for (const t of threads) {
-      if (t.file_path === selectedFile && t.line != null) {
+      const isThreadForCurrentFile = isDocReview ? t.file_path == null : t.file_path === selectedFile;
+      if (isThreadForCurrentFile && t.line != null) {
         const existing = map.get(t.line) ?? [];
         existing.push(t);
         map.set(t.line, existing);
       }
     }
     return map;
-  }, [threads, selectedFile]);
+  }, [isDocReview, threads, selectedFile]);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -190,12 +201,59 @@ export function FileReviewClient({
         if (prev.some((t) => t.id === thread.id)) return prev;
         return [...prev, thread];
       });
+      setStatusMessage(null);
       setNewCommentText("");
       setPanelCommentText("");
       setActiveLineComment(null);
     },
     [sessionId]
   );
+
+  const requestRevision = useCallback(async () => {
+    const res = await fetch(`/s/${sessionId}/request-revision`, {
+      method: "POST",
+    });
+    const body = (await res.json()) as {
+      ok: boolean;
+      state: "processing" | "agent_not_polling";
+      message: string;
+      clipboardText?: string;
+    };
+
+    if (body.state === "processing") {
+      setIsDone(true);
+      setStatusMessage(null);
+      return;
+    }
+
+    let message = body.message;
+    if (body.clipboardText) {
+      try {
+        await navigator.clipboard.writeText(body.clipboardText);
+        message = `${body.message} Feedback copied to the clipboard.`;
+      } catch {
+        message = `${body.message} Clipboard copy failed; try again after starting the agent poll.`;
+      }
+    }
+    setStatusMessage(message);
+  }, [sessionId]);
+
+  const copyFeedback = useCallback(async () => {
+    const res = await fetch(`/s/${sessionId}/copy-feedback`, {
+      method: "POST",
+    });
+    const body = (await res.json()) as {
+      ok: boolean;
+      clipboardText: string;
+    };
+
+    try {
+      await navigator.clipboard.writeText(body.clipboardText);
+      setStatusMessage("Feedback copied to the clipboard.");
+    } catch {
+      setStatusMessage("Clipboard copy failed. Copy the feedback manually from the agent instructions.");
+    }
+  }, [sessionId]);
 
   const navigateFile = (direction: -1 | 1) => {
     const idx = files.findIndex((f) => f.path === selectedFile);
@@ -208,91 +266,85 @@ export function FileReviewClient({
 
   if (files.length === 0) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-center space-y-2">
-          <div className="text-lg font-mono text-foreground">Waiting for the agent to submit files...</div>
-          <p className="text-sm text-muted-foreground">The agent has not submitted any files yet.</p>
-          <Badge variant="outline" className="font-mono text-xs">{sessionId.slice(0, 8)}</Badge>
+      <SessionChrome title="File Review" sessionId={sessionId}>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center space-y-2">
+            <div className="text-lg font-mono text-foreground">Waiting for the agent to submit files...</div>
+            <p className="text-sm text-muted-foreground">The agent has not submitted any files yet.</p>
+          </div>
         </div>
-      </div>
+      </SessionChrome>
     );
   }
 
   return (
-    <div className="h-screen bg-background text-foreground flex flex-col">
-      <header className="border-b border-border px-6 py-4 shrink-0">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold tracking-tight font-mono">
-            File Review
-          </h1>
-          <Badge variant="outline" className="font-mono text-xs">
-            {sessionId.slice(0, 8)}
-          </Badge>
-        </div>
-      </header>
-
+    <SessionChrome title="File Review" sessionId={sessionId}>
       <div className="flex flex-1 overflow-hidden">
-        {/* File selector sidebar */}
-        <aside className="shrink-0 border-r border-border flex flex-col" style={{ width: fileListWidth }}>
-          <div className="px-3 py-2 border-b border-border">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Files
-              <span className="ml-1.5 text-foreground">{files.length}</span>
-            </h2>
-          </div>
-          <nav className="flex-1 overflow-y-auto py-1">
-            {files.map((file) => {
-              const isSelected = file.path === selectedFile;
-              const threadCount = fileThreadCounts.get(file.path) ?? 0;
-              return (
-                <button
-                  key={file.path}
-                  className={`w-full text-left px-3 py-1.5 text-sm font-mono transition-colors ${
-                    isSelected
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-muted/50 text-foreground/80"
-                  }`}
-                  onClick={() => {
-                    setSelectedFile(file.path);
-                    setActiveLineComment(null);
-                  }}
-                  title={file.path}
+        {!isSingleFile && (
+          <>
+            {/* File selector sidebar */}
+            <aside className="shrink-0 border-r border-border flex flex-col" style={{ width: fileListWidth }}>
+              <div className="px-3 py-2 border-b border-border">
+                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Files
+                  <span className="ml-1.5 text-foreground">{files.length}</span>
+                </h2>
+              </div>
+              <nav className="flex-1 overflow-y-auto py-1">
+                {files.map((file) => {
+                  const isSelected = file.path === selectedFile;
+                  const threadCount = fileThreadCounts.get(file.path) ?? 0;
+                  return (
+                    <button
+                      key={file.path}
+                      className={`w-full text-left px-3 py-1.5 text-sm font-mono transition-colors ${
+                        isSelected
+                          ? "bg-accent text-accent-foreground"
+                          : "hover:bg-muted/50 text-foreground/80"
+                      }`}
+                      onClick={() => {
+                        setSelectedFile(file.path);
+                        setActiveLineComment(null);
+                      }}
+                      title={file.path}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="truncate flex-1 text-xs">{file.path}</span>
+                        {threadCount > 0 && (
+                          <span className="shrink-0 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full">
+                            {threadCount}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </nav>
+              <div className="border-t border-border p-2 flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-xs"
+                  disabled={files.findIndex((f) => f.path === selectedFile) <= 0}
+                  onClick={() => navigateFile(-1)}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate flex-1 text-xs">{file.path}</span>
-                    {threadCount > 0 && (
-                      <span className="shrink-0 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full">
-                        {threadCount}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </nav>
-          <div className="border-t border-border p-2 flex gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex-1 text-xs"
-              disabled={files.findIndex((f) => f.path === selectedFile) <= 0}
-              onClick={() => navigateFile(-1)}
-            >
-              Prev
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex-1 text-xs"
-              disabled={files.findIndex((f) => f.path === selectedFile) >= files.length - 1}
-              onClick={() => navigateFile(1)}
-            >
-              Next
-            </Button>
-          </div>
-        </aside>
+                  Prev
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 text-xs"
+                  disabled={files.findIndex((f) => f.path === selectedFile) >= files.length - 1}
+                  onClick={() => navigateFile(1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </aside>
 
-        <ResizeHandle side="left" onDrag={setFileListWidth} minWidth={120} />
+            <ResizeHandle side="left" onDrag={setFileListWidth} minWidth={120} />
+          </>
+        )}
 
         {/* File content */}
         <main className="flex-1 overflow-y-auto">
@@ -301,7 +353,7 @@ export function FileReviewClient({
               <div className="bg-muted/50 px-4 py-2 border-b border-border shrink-0">
                 <span className="text-xs font-mono text-foreground">{currentFile.path}</span>
               </div>
-              <div className="flex-1 overflow-y-auto font-mono text-sm leading-relaxed">
+              <div className={`flex-1 overflow-y-auto ${isMarkdownFile ? "" : "font-mono text-sm leading-relaxed"}`}>
                 {currentLines.map((line, i) => {
                   const lineNum = i + 1;
                   const hasThread = lineThreads.has(lineNum);
@@ -336,7 +388,7 @@ export function FileReviewClient({
                             <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary group-hover:hidden" />
                           )}
                         </button>
-                        {currentLanguage === "markdown" ? (
+                        {isMarkdownFile ? (
                           <pre className="flex-1 px-4 py-1 overflow-x-auto whitespace-pre-wrap break-words">
                             <MarkdownLine text={line} />
                           </pre>
@@ -371,7 +423,9 @@ export function FileReviewClient({
                             <Button variant="ghost" size="sm" onClick={() => setActiveLineComment(null)}>Cancel</Button>
                             <Button
                               size="sm"
-                              onClick={() => createThread(selectedFile, lineNum, newCommentText)}
+                              onClick={() =>
+                                createThread(isDocReview ? null : selectedFile, lineNum, newCommentText)
+                              }
                               disabled={!newCommentText.trim()}
                             >
                               Comment
@@ -407,13 +461,24 @@ export function FileReviewClient({
             onNewCommentTextChange={setPanelCommentText}
             onCreateGeneralComment={(text) => createThread(null, null, text)}
             onDone={() => {
+              if (isDocReview) {
+                return requestRevision();
+              }
               fetch(`/s/${sessionId}/done`, { method: "POST" });
               setIsDone(true);
             }}
+            doneLabel={isDocReview ? "Request Revision" : "Done"}
             isDone={isDone}
+            lockedMessage={
+              isDocReview ? "Agent processing feedback..." : undefined
+            }
+            lockedActionLabel={isDocReview ? "Copy Feedback Instead" : undefined}
+            onLockedAction={isDocReview ? copyFeedback : undefined}
+            statusMessage={statusMessage}
+            statusTone={isDocReview ? "warning" : "default"}
           />
         </aside>
       </div>
-    </div>
+    </SessionChrome>
   );
 }

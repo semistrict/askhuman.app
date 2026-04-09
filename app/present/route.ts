@@ -1,35 +1,33 @@
 import { createSession } from "@/lib/plan-review";
-import {
-  createFileSession,
-  updateFileSession,
-  parseFileSubmissionRequest,
-  FileReviewError,
-} from "@/lib/file-review";
 import { msg } from "@/lib/agent-messages";
 import {
-  fileSubmitMarkdown,
-  fileUpdateMarkdown,
   errorMarkdown,
   negotiatedResponse,
+  presentSubmitMarkdown,
+  presentUpdateMarkdown,
 } from "@/lib/rest-response";
+import {
+  createPresentationSession,
+  parsePresentationRequest,
+  PresentError,
+  updatePresentationSession,
+} from "@/lib/present";
 
 export async function POST(request: Request) {
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
 
   try {
-    const { files, sessionId: existingSessionId, response } =
-      await parseFileSubmissionRequest(request);
-
-    if (existingSessionId) {
-      const result = await updateFileSession(existingSessionId, files, baseUrl, response);
-      return negotiatedResponse(request, result, fileUpdateMarkdown(result));
+      const { markdown, sessionId } = await parsePresentationRequest(request);
+    if (sessionId) {
+      const result = await updatePresentationSession(sessionId, markdown, baseUrl);
+      return negotiatedResponse(request, result, presentUpdateMarkdown(result));
     }
 
     const id = createSession();
-    const result = await createFileSession(id, files, baseUrl);
-    return negotiatedResponse(request, result, fileSubmitMarkdown(result));
+    const result = await createPresentationSession(id, markdown, baseUrl);
+    return negotiatedResponse(request, result, presentSubmitMarkdown(result));
   } catch (error) {
-    if (error instanceof FileReviewError) {
+    if (error instanceof PresentError) {
       const payload = { error: error.message };
       return negotiatedResponse(
         request,
@@ -43,7 +41,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const error = { error: msg("route_files_get") };
+  const error = { error: msg("route_present_get") };
   return negotiatedResponse(
     request,
     error,

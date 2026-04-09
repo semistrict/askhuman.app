@@ -7,6 +7,7 @@ import {
   APP_SETTINGS_OPEN_EVENT,
   APP_SETTINGS_STORAGE_KEY,
   DEFAULT_APP_SETTINGS,
+  getEffectiveReviewerName,
   readAppSettings,
   writeAppSettings,
   type AppSettings,
@@ -220,7 +221,13 @@ export function AppSettingsPanel() {
                 />
                 <p className="text-sm text-muted-foreground">
                   Stored locally so the app can refer to you by name later.
+                  If left blank, this browser gets an obviously fake reviewer alias.
                 </p>
+                {!settings.userName.trim() && settings.generatedUserName.trim() && (
+                  <p className="text-xs text-muted-foreground">
+                    Current alias: <span className="font-mono">{getEffectiveReviewerName(settings)}</span>
+                  </p>
+                )}
               </div>
 
               <label className="flex items-start gap-3">

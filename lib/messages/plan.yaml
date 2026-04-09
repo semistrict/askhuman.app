@@ -6,12 +6,14 @@ plan_instructions: |-
     Or just show the URL to the user (they cannot see this text).
   - Poll for feedback (returns when the reviewer clicks Request Revision):
      curl -s {POLL_URL}
-  - When feedback is returned, address each numbered comment and submit the updated doc:
-     curl -s -X POST {UPDATE_URL} \
-       -F "markdown=<doc.md"
+  - When feedback is returned, address each numbered comment and upload the updated file:
+     curl -s -X POST {BASE_URL}/review \
+       -F sessionId={SESSION_ID} \
+       -F "{FILE_PATH}=<{FILE_PATH}"
   - To include a general response for the reviewer on update:
-     curl -s -X POST {UPDATE_URL} \
-       -F "markdown=<doc.md" \
+     curl -s -X POST {BASE_URL}/review \
+       -F sessionId={SESSION_ID} \
+       -F "{FILE_PATH}=<{FILE_PATH}" \
        -F 'response=Addressed the requested revisions.'
 
 plan_comments: >-
@@ -30,7 +32,7 @@ plan_change_pickup_diff: >-
 
 plan_change_pickup_files: >-
   If you make code changes in response to these comments, re-upload all
-  files with a fresh POST to /files so the reviewer can see the updated
+  files with a fresh POST to /review so the reviewer can see the updated
   code.
 
 plan_change_pickup_generic: >-
@@ -40,14 +42,14 @@ plan_change_pickup_generic: >-
 
 doc_comments: >-
   Feedback is ready. Address each numbered comment below, then submit the
-  updated doc to {UPDATE_URL}.
+  updated markdown file to {UPDATE_URL}.
 
 doc_timeout: >-
   No revision request yet. The human may still be reviewing. Poll again.
 
 doc_done: |-
   Feedback is ready. Address each numbered comment below, then submit the
-  updated doc:
+  updated markdown file:
     curl -s -X POST {UPDATE_URL} \
       -F "markdown=<doc.md"
 
@@ -67,8 +69,8 @@ doc_agent_not_polling: >-
   so you can paste it into the agent manually.
 
 doc_updated: >-
-  Doc updated. The reviewer can comment on the new revision.
+  Markdown file updated. The reviewer can comment on the new revision.
 
 doc_update_missing_markdown: >-
-  Missing updated markdown. Submit the revised doc as the request body or as a
+  Missing updated markdown. Submit the revised markdown file as the request body or as a
   multipart field named "markdown".

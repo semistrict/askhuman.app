@@ -1,9 +1,9 @@
 import { SessionDO } from "@/worker/session";
 import { createCompactId } from "@/lib/compact-id";
 import { msg } from "@/lib/agent-messages";
-import { formatPollResponse, pollComments, REST_POLL_TIMEOUT_MS } from "@/lib/hitl";
-import { pollMarkdown, type ContentContext } from "@/lib/rest-response";
+import { pollComments, REST_POLL_TIMEOUT_MS } from "@/lib/hitl";
 import type { Thread } from "@/worker/session";
+import { buildDocFileFeedbackClipboardText, getDocReviewFile } from "@/lib/file-review";
 
 export class DocReviewError extends Error {
   readonly status: number;
@@ -30,28 +30,23 @@ export async function submitPlan(
   baseUrl: string
 ) {
   const session = SessionDO.getInstance(sessionId);
-  await session.setContentType("plan");
+  await session.setContentType("files");
+  await session.setReviewMode("doc");
   await session.setDocReviewState("ready");
-  await session.setContent(markdown);
+  await session.replaceFiles([{ path: "doc.md", content: markdown }]);
   const url = `${baseUrl}/s/${sessionId}`;
-  const planPollUrl = `${baseUrl}/plan/${sessionId}/poll`;
-  const planUpdateUrl = `${baseUrl}/plan/${sessionId}/update`;
+  const planPollUrl = `${baseUrl}/review/${sessionId}/poll`;
   return {
     sessionId,
     url,
     instructions: msg("plan_instructions", {
       URL: url,
       POLL_URL: planPollUrl,
-      UPDATE_URL: planUpdateUrl,
+      SESSION_ID: sessionId,
+      BASE_URL: baseUrl,
+      FILE_PATH: "doc.md",
     }),
   };
-}
-
-function buildDocContext(markdown: string | null): ContentContext | undefined {
-  if (markdown == null) return undefined;
-  const context = new Map<string, string[]>();
-  context.set("__plan__", markdown.split("\n"));
-  return context;
 }
 
 export function getPendingDocThreads(threads: Thread[]): Thread[] {
@@ -65,15 +60,7 @@ export async function buildDocFeedbackClipboardText(
   sessionId: string,
   baseUrl: string
 ): Promise<string> {
-  const session = SessionDO.getInstance(sessionId);
-  const threads = getPendingDocThreads(await session.getThreads());
-  const content = await session.getContent();
-  const result = formatPollResponse({ threads, done: true }, sessionId, baseUrl, "plan");
-  const feedback = pollMarkdown({
-    ...result,
-    context: buildDocContext(content?.content ?? null),
-  });
-  return `${feedback}\n\nAfter you submit the updated doc, poll again with \`curl -s ${baseUrl}/plan/${sessionId}/poll\`.`;
+  return buildDocFileFeedbackClipboardText(sessionId, baseUrl);
 }
 
 export async function requestDocRevision(sessionId: string, baseUrl: string) {
@@ -94,7 +81,10 @@ export async function requestDocRevision(sessionId: string, baseUrl: string) {
     };
   }
 
-  if (!(await session.hasConnectedAgentKind("plan_poll"))) {
+  if (
+    !(await session.hasConnectedAgentKind("plan_poll")) &&
+    !(await session.hasConnectedAgentKind("file_poll"))
+  ) {
     return {
       ok: false,
       state: "agent_not_polling" as const,
@@ -114,7 +104,7 @@ export async function requestDocRevision(sessionId: string, baseUrl: string) {
 
 export async function pollDocReview(sessionId: string, baseUrl: string) {
   const session = SessionDO.getInstance(sessionId);
-  const result = await pollComments(sessionId, REST_POLL_TIMEOUT_MS, baseUrl, "plan");
+  const result = await pollComments(sessionId, REST_POLL_TIMEOUT_MS, baseUrl, "review");
   const state = await session.getDocReviewState();
   const message =
     result.status === "done" && state === "complete"
@@ -141,9 +131,12 @@ export async function updateDocReview(
   if (await session.isDone()) {
     await session.resetDone();
   }
+  await session.setContentType("files");
+  await session.setReviewMode("doc");
   await session.setDocReviewState("ready");
   await session.markOutdatedDocThreads();
-  await session.setContent(markdown);
+  const currentFile = await getDocReviewFile(sessionId);
+  await session.replaceFiles([{ path: currentFile?.path ?? "doc.md", content: markdown }]);
   if (response && response.trim()) {
     await session.createAgentThread(response.trim());
   }

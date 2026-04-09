@@ -1,3 +1,5 @@
+import { ensureReviewerPresenceName } from "@/lib/app-settings";
+
 type DebugEvalMessage = {
   type: "debug_eval";
   requestId: string;
@@ -17,6 +19,7 @@ type TabHelloMessage = {
   url: string;
   title: string;
   userAgent: string;
+  reviewerName: string;
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -91,6 +94,7 @@ export function sendTabHello(ws: WebSocket) {
     url: window.location.href,
     title: document.title,
     userAgent: navigator.userAgent,
+    reviewerName: ensureReviewerPresenceName(window.localStorage),
   };
   ws.send(JSON.stringify(payload));
 }

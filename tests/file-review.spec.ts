@@ -26,7 +26,7 @@ async function createFileSession(
   for (const [path, content] of Object.entries(files)) {
     multipart[path] = content;
   }
-  const res = await request.post("/files", {
+  const res = await request.post("/review", {
     headers: JSON_ACCEPT,
     multipart,
   });
@@ -79,7 +79,7 @@ test.describe("File Review", () => {
     });
     expect(body.sessionId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(body.url).toContain(`/s/${body.sessionId}`);
-    expect(body.message).toContain("/files/" + body.sessionId + "/poll");
+    expect(body.message).toContain("/review/" + body.sessionId + "/poll");
     expect(body.message).toContain("2 file(s)");
   });
 
@@ -96,6 +96,16 @@ test.describe("File Review", () => {
     await expect(page.locator("text=const greet")).toBeVisible();
   });
 
+  test("single-file review hides the file selector sidebar", async ({ page, request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "src/greet.ts": FILE_A,
+    });
+    await page.goto(`/s/${sessionId}`);
+
+    await expect(page.locator("nav")).toHaveCount(0);
+    await expect(page.getByText("const greet")).toBeVisible();
+  });
+
   test("clicking a file in the selector shows its content", async ({ page, request }) => {
     const { sessionId } = await createFileSession(request, {
       "src/greet.ts": FILE_A,
@@ -107,6 +117,55 @@ test.describe("File Review", () => {
     await expect(page.locator("text=This is a sample project")).toBeVisible();
   });
 
+  test("markdown files render as markdown", async ({ page, request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "README.md": FILE_B,
+    });
+    await page.goto(`/s/${sessionId}`);
+
+    await expect(page.locator("text=README").first()).toBeVisible();
+    await expect(page.locator("text=Getting Started").first()).toBeVisible();
+  });
+
+  test("shows agent presence while a review poll is in flight", async ({ page, request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "src/greet.ts": FILE_A,
+    });
+    await page.goto(`/s/${sessionId}`);
+
+    const pollPromise = request.get(`/review/${sessionId}/poll`, {
+      headers: JSON_ACCEPT,
+      timeout: 10000,
+    });
+
+    await expect(page.getByText("Agent polling")).toBeVisible({ timeout: 5000 });
+
+    await request.post(`/s/${sessionId}/done`);
+    await pollPromise;
+
+    await expect(page.getByText("Agent idle")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("shows the human reviewer name from settings in presence", async ({ page, request }) => {
+    const { sessionId } = await createFileSession(request, {
+      "src/greet.ts": FILE_A,
+    });
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "askhuman.settings",
+        JSON.stringify({
+          enablePostHogMonitoring: false,
+          userName: "Ramon",
+          generatedUserName: "",
+        })
+      );
+    });
+
+    await page.goto(`/s/${sessionId}`);
+    await expect(page.getByText("Human: Ramon")).toBeVisible({ timeout: 5000 });
+  });
+
   test("poll returns comments only after Done is clicked", async ({ page, request }) => {
     const { sessionId } = await createFileSession(request, {
       "src/greet.ts": FILE_A,
@@ -116,7 +175,7 @@ test.describe("File Review", () => {
     const delayedAction = postThreadAndDoneAfterDelay(
       request, sessionId, "Nice function", "src/greet.ts", 1
     );
-    const pollRes = await request.get(`/files/${sessionId}/poll`, {
+    const pollRes = await request.get(`/review/${sessionId}/poll`, {
       headers: JSON_ACCEPT,
       timeout: 10000,
     });
@@ -138,7 +197,7 @@ test.describe("File Review", () => {
       data: { text: "Update the readme", filePath: "README.md", line: 1 },
     });
 
-    const updateRes = await request.post("/files", {
+    const updateRes = await request.post("/review", {
       headers: JSON_ACCEPT,
       multipart: {
         sessionId,
@@ -157,7 +216,7 @@ test.describe("File Review", () => {
     await request.post(`/s/${sessionId}/done`);
 
     // Resubmit should succeed
-    const updateRes = await request.post("/files", {
+    const updateRes = await request.post("/review", {
       headers: JSON_ACCEPT,
       multipart: {
         sessionId,
@@ -168,7 +227,7 @@ test.describe("File Review", () => {
 
     // Poll should wait again
     const delayedDone = postDoneAfterDelay(request, sessionId);
-    const pollRes = await request.get(`/files/${sessionId}/poll`, {
+    const pollRes = await request.get(`/review/${sessionId}/poll`, {
       headers: JSON_ACCEPT,
       timeout: 10000,
     });
@@ -184,7 +243,7 @@ test.describe("File Review", () => {
 
     await request.post(`/s/${sessionId}/done`);
 
-    const pollRes = await request.get(`/files/${sessionId}/poll`, {
+    const pollRes = await request.get(`/review/${sessionId}/poll`, {
       headers: JSON_ACCEPT,
     });
     expect((await pollRes.json()).status).toBe("done");
@@ -221,7 +280,7 @@ test.describe("File Review", () => {
     });
     await request.post(`/s/${sessionId}/done`);
 
-    const res = await request.get(`/files/${sessionId}/poll`);
+    const res = await request.get(`/review/${sessionId}/poll`);
     const text = await res.text();
     expect(text).toContain("#1 (src/greet.ts:3)");
     expect(text).toContain("> ");
@@ -242,7 +301,7 @@ test.describe("File Review", () => {
     });
     await request.post(`/s/${sessionId}/done`);
 
-    const res = await request.get(`/files/${sessionId}/poll`);
+    const res = await request.get(`/review/${sessionId}/poll`);
     const text = await res.text();
     expect(text).toContain("#1 (edge.ts:1)");
     expect(text).toContain("first");
@@ -260,14 +319,14 @@ test.describe("File Review", () => {
     });
     await request.post(`/s/${sessionId}/done`);
 
-    const res = await request.get(`/files/${sessionId}/poll`);
+    const res = await request.get(`/review/${sessionId}/poll`);
     const text = await res.text();
     expect(text).toContain("#1 (general)");
     expect(text).toContain("Overall looks good");
   });
 
   test("empty file submission is rejected", async ({ request }) => {
-    const res = await request.post("/files", {
+    const res = await request.post("/review", {
       headers: JSON_ACCEPT,
       multipart: {
         sessionId: "",

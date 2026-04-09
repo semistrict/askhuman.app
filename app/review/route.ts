@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const error = { error: msg("route_files_get") };
+  const error = { error: msg("route_review_get") };
   return negotiatedResponse(
     request,
     error,

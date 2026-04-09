@@ -18,13 +18,13 @@ export async function POST(
   const { id } = await params;
   const replies = await parseRepliesRequest(request);
   const baseUrl = new URL("/", request.url).toString().replace(/\/$/, "");
-  const result = await withTrackedAgentLongPoll(request, id, "file_reply", () =>
+  const result = await withTrackedAgentLongPoll(request, id, "present_reply", () =>
     replyToComments(
       id,
       replies,
       REST_POLL_TIMEOUT_MS,
       baseUrl,
-      "review"
+      "present"
     )
   );
   return negotiatedResponse(request, result, replyMarkdown(result));
@@ -35,7 +35,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   await params;
-  const error = { error: msg("route_files_reply_get") };
+  const error = { error: msg("route_present_reply_get") };
   return negotiatedResponse(
     request,
     error,

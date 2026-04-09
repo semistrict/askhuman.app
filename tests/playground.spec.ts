@@ -62,6 +62,23 @@ test.describe("Playground", () => {
     await expect(iframe.locator("#title")).toHaveText("My Playground");
   });
 
+  test("shows agent presence while a playground poll is in flight", async ({ page, request }) => {
+    const { sessionId } = await createPlayground(request, SIMPLE_HTML);
+    await page.goto(`/s/${sessionId}`);
+
+    const pollPromise = request.get(`/playground/${sessionId}/poll`, {
+      headers: JSON_ACCEPT,
+      timeout: 10000,
+    });
+
+    await expect(page.getByText("Agent polling")).toBeVisible({ timeout: 5000 });
+
+    await request.post(`/s/${sessionId}/done`);
+    await pollPromise;
+
+    await expect(page.getByText("Agent idle")).toBeVisible({ timeout: 5000 });
+  });
+
   test("postMessage result is stored and returned on poll", async ({ page, request }) => {
     const { sessionId } = await createPlayground(request, SIMPLE_HTML);
     await page.goto(`/s/${sessionId}`);
