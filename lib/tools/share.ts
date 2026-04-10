@@ -14,44 +14,38 @@ export const shareTool: Tool<ShareActionInput> = {
 
   async bootstrap({ sessionId, baseUrl }) {
     const url = `${baseUrl}/s/${sessionId}`;
+    const chromeApp = `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="${url}" &`;
+    const fallback = `open "${url}"`;
     return {
       sessionId,
       url,
       tool: "share",
       openCommands: {
-        chromeApp:
-          `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ` +
-          `--app="${url}#key=$KEY_HEX" &`,
-        fallback: `open "${url}#key=$KEY_HEX"`,
+        chromeApp,
+        fallback,
       },
       message: [
-        "Generate the share key locally, encrypt the document locally, and open the final URL with the key in the fragment.",
-        "The server must only receive ciphertext JSON, never plaintext.",
-        "Open the final reviewer URL with Chrome app mode after setting KEY_HEX:",
-        `  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="${url}#key=$KEY_HEX" &`,
+        "Ask the user to open this encrypted share page.",
+        "If this browser has not enabled end-to-end encryption yet, the page will ask for localStorage permission, generate a local private key, upload a 24-hour public-key reference, and copy short instructions for you.",
+        "Wait for the user to paste those instructions back before you encrypt and upload the document.",
+        "Prefer Chrome app mode for a clean dedicated window:",
+        `  ${chromeApp}`,
         "Fallback:",
-        `  open "${url}#key=$KEY_HEX"`,
+        `  ${fallback}`,
       ].join("\n"),
       next: [
-        "Local OpenSSL recipe:",
+        "Flow:",
         "",
-        "  KEY_HEX=$(openssl rand -hex 64)",
-        "  ENC_KEY_HEX=${KEY_HEX:0:64}",
-        "  MAC_KEY_HEX=${KEY_HEX:64}",
-        "  IV_HEX=$(openssl rand -hex 16)",
-        "  openssl enc -aes-256-cbc -nosalt -K \"$ENC_KEY_HEX\" -iv \"$IV_HEX\" -in secret.md -out secret.bin",
-        "  IV_B64=$(printf '%s' \"$IV_HEX\" | xxd -r -p | openssl base64 -A | tr '+/' '-_' | tr -d '=')",
-        "  CIPHERTEXT_B64=$(openssl base64 -A < secret.bin | tr '+/' '-_' | tr -d '=')",
-        "  MAC_INPUT=\"aes-256-cbc+hmac-sha256:1:$IV_B64:$CIPHERTEXT_B64\"",
-        "  MAC_B64=$(printf '%s' \"$MAC_INPUT\" | openssl dgst -sha256 -mac HMAC -macopt hexkey:$MAC_KEY_HEX -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')",
+        `  1. Open ${url} for the user.`,
+        "  2. If the page generates new encryption instructions, wait for the user to paste them back to you.",
+        "  3. Encrypt the markdown to the user's public key with RSA-OAEP-SHA256 + AES-256-GCM.",
+        "  4. POST only ciphertext JSON:",
         "",
-        "Then open:",
-        `  ${url}#key=$KEY_HEX`,
-        "",
-        "Then submit the encrypted envelope JSON:",
-        `  printf '{"version":1,"alg":"aes-256-cbc+hmac-sha256","iv":"%s","ciphertext":"%s","mac":"%s"}' "$IV_B64" "$CIPHERTEXT_B64" "$MAC_B64" | curl -s -X POST ${baseUrl}/share/${sessionId} \\`,
+        `  curl -s -X POST ${baseUrl}/share/${sessionId} \\`,
         `    -H 'Content-Type: application/json' \\`,
-        "    --data-binary @-",
+        "    --data-binary @encrypted-share.json",
+        "",
+        '  JSON shape: {"version":2,"alg":"rsa-oaep-256+aes-256-gcm","recipientKeyId":"...","encryptedKey":"...","iv":"...","ciphertext":"..."}',
       ].join("\n"),
     };
   },

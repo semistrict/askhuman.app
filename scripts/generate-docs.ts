@@ -305,13 +305,24 @@ should both be visible without scrolling.
 ## Encrypted Share
 
 Submit an encrypted markdown document. The server stores only the ciphertext
-envelope; the browser decrypts with Web Crypto using the key in the URL fragment.
+envelope; the browser keeps a private key in localStorage and shares only a
+short-lived public-key reference with the agent.
 
 ### Bootstrap
 
 \`\`\`bash
 curl -s -X POST https://askhuman.app/share
 \`\`\`
+
+### Reviewer setup
+
+Open the session page in the browser. If that browser has not enabled
+end-to-end encryption yet, it will prompt the user to:
+
+- allow localStorage-backed key storage
+- generate a local private key
+- upload a 24-hour public-key reference
+- copy public-key instructions back to the agent
 
 ### Submit
 
@@ -321,17 +332,12 @@ curl -s -X POST https://askhuman.app/share/<sessionId> \\
   --data-binary @encrypted-share.json
 \`\`\`
 
-The reviewer URL must include the local key fragment:
-
-\`\`\`text
-https://askhuman.app/s/<sessionId>#key=<local-key>
-\`\`\`
-
 ### Notes
 
-- The JSON body must contain \`version\`, \`alg\`, \`iv\`, \`ciphertext\`, and \`mac\`.
-- The built-in recipe uses AES-256-CBC for encryption and HMAC-SHA256 for integrity.
-- The fragment key never reaches the server.
+- The JSON body must contain \`version\`, \`alg\`, \`recipientKeyId\`, \`encryptedKey\`, \`iv\`, and \`ciphertext\`.
+- The built-in envelope uses RSA-OAEP-SHA256 to wrap a fresh AES-256-GCM content key.
+- The copied agent instructions include a short-lived key URL that returns \`recipientKeyId\` and \`publicKeySpki\`.
+- The reviewer private key stays in that browser's localStorage and is never sent to the server.
 `;
 
 writeFileSync(resolve(ROOT, "skills/askhuman/SKILL.md"), skillMd);

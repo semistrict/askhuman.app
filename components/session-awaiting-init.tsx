@@ -73,8 +73,9 @@ export function SessionAwaitingInit({
     }
     if (toolId === "share") {
       return [
-        `I have the encrypted share page ready: ${url}#key=YOUR_LOCAL_KEY`,
-        `Continue now by POSTing the encrypted JSON envelope to /share/${sessionId}.`,
+        `I have the encrypted share page ready: ${url}`,
+        "If this browser needs a fresh encryption key, I will send you the copied public-key instructions from that page next.",
+        `Continue by encrypting the document to my public key and POSTing the encrypted JSON envelope to /share/${sessionId}.`,
         "Do not wait for any further confirmation from me.",
       ].join("\n");
     }

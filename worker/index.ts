@@ -40,6 +40,7 @@ interface ExecutionContext {
 
 interface Env {
   ASSETS: Fetcher;
+  SHARE_KEYS: KVNamespace;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

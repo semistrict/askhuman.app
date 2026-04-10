@@ -1,39 +1,88 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "askhuman-app",
-  "compatibility_date": "2026-04-05",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
-  "main": "./worker/index.ts",
-  "vars": {
-    "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN": "phc_ygbhbLTzkHMkMiZnmC2UbUR3m9urs2rEsyGXwKc3Q5n2",
-    "NEXT_PUBLIC_POSTHOG_HOST": "https://us.i.posthog.com"
-  },
-  "workers_dev": false,
-  "routes": [
-    { "pattern": "askhuman.app", "custom_domain": true },
-    { "pattern": "www.askhuman.app", "custom_domain": true }
-  ],
-  "assets": {
-    "directory": "dist/client",
-    "not_found_handling": "none",
-    "binding": "ASSETS"
-  },
-  "images": {
-    "binding": "IMAGES"
-  },
-  "durable_objects": {
-    "bindings": [
-      { "name": "SESSION", "class_name": "SessionDO" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["PlanSession"] },
-    { "tag": "v2", "new_classes": ["McpSession"] },
-    { "tag": "v3", "renamed_classes": [{ "from": "PlanSession", "to": "SessionDO" }] },
-    { "tag": "v4", "deleted_classes": ["McpSession"] },
-    { "tag": "v5", "new_sqlite_classes": ["DebugIndexDO"] },
-    { "tag": "v6", "deleted_classes": ["DebugIndexDO"] }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "askhuman-app",
+	"compatibility_date": "2026-04-05",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"main": "./worker/index.ts",
+	"vars": {
+		"NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN": "phc_ygbhbLTzkHMkMiZnmC2UbUR3m9urs2rEsyGXwKc3Q5n2",
+		"NEXT_PUBLIC_POSTHOG_HOST": "https://us.i.posthog.com"
+	},
+	"workers_dev": false,
+	"routes": [
+		{
+			"pattern": "askhuman.app",
+			"custom_domain": true
+		},
+		{
+			"pattern": "www.askhuman.app",
+			"custom_domain": true
+		}
+	],
+	"assets": {
+		"directory": "dist/client",
+		"not_found_handling": "none",
+		"binding": "ASSETS"
+	},
+	"images": {
+		"binding": "IMAGES"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "SHARE_KEYS",
+			"id": "95101a961c4746d4b8620e21c6070571",
+			"preview_id": "034e4098d73f4250afdeb952f5a6bea4"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SESSION",
+				"class_name": "SessionDO"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"PlanSession"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_classes": [
+				"McpSession"
+			]
+		},
+		{
+			"tag": "v3",
+			"renamed_classes": [
+				{
+					"from": "PlanSession",
+					"to": "SessionDO"
+				}
+			]
+		},
+		{
+			"tag": "v4",
+			"deleted_classes": [
+				"McpSession"
+			]
+		},
+		{
+			"tag": "v5",
+			"new_sqlite_classes": [
+				"DebugIndexDO"
+			]
+		},
+		{
+			"tag": "v6",
+			"deleted_classes": [
+				"DebugIndexDO"
+			]
+		}
+	]
 }

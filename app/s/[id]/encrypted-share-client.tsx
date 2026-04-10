@@ -7,9 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SessionChrome } from "@/components/session-chrome";
 import {
+  buildEncryptedShareAgentInstructions,
   decryptEncryptedShare,
-  encryptedShareKeyFromHash,
+  generateEncryptedShareKeyPair,
   parseEncryptedSharePayload,
+  readStoredEncryptedShareKeyPair,
+  writeStoredEncryptedShareKeyPair,
+  type StoredEncryptedShareKeyPair,
 } from "@/lib/encrypted-share";
 import {
   bindReviewerPresenceSync,
@@ -20,9 +24,15 @@ import {
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "locked" }
+  | { kind: "needs_key" }
   | { kind: "error"; message: string }
   | { kind: "ready"; markdown: string };
+
+type KeyState =
+  | { kind: "loading" }
+  | { kind: "missing" }
+  | { kind: "ready"; keyPair: StoredEncryptedShareKeyPair }
+  | { kind: "error"; message: string };
 
 export function EncryptedShareClient({
   sessionId,
@@ -34,25 +44,53 @@ export function EncryptedShareClient({
   isDone: boolean;
 }) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [keyState, setKeyState] = useState<KeyState>({ kind: "loading" });
   const [isDone, setIsDone] = useState(initialIsDone);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+
+  useEffect(() => {
+    try {
+      const stored = readStoredEncryptedShareKeyPair(window.localStorage);
+      if (stored) {
+        setKeyState({ kind: "ready", keyPair: stored });
+      } else {
+        setKeyState({ kind: "missing" });
+      }
+    } catch (error) {
+      setKeyState({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to access localStorage for encrypted share keys.",
+      });
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      if (keyState.kind === "loading") {
+        setState({ kind: "loading" });
+        return;
+      }
+      if (keyState.kind === "missing") {
+        setState({ kind: "needs_key" });
+        return;
+      }
+      if (keyState.kind === "error") {
+        setState({ kind: "error", message: keyState.message });
+        return;
+      }
       if (!payload.trim()) {
         setState({ kind: "loading" });
         return;
       }
 
       try {
-        const key = encryptedShareKeyFromHash(window.location.hash);
-        if (!key) {
-          setState({ kind: "locked" });
-          return;
-        }
-
         const parsed = parseEncryptedSharePayload(JSON.parse(payload));
-        const markdown = await decryptEncryptedShare(parsed, key);
+        const markdown = await decryptEncryptedShare(parsed, keyState.keyPair);
         if (!cancelled) {
           setState({ kind: "ready", markdown });
         }
@@ -73,7 +111,57 @@ export function EncryptedShareClient({
     return () => {
       cancelled = true;
     };
-  }, [payload]);
+  }, [keyState, payload]);
+
+  async function copyAgentInstructions(keyPair: StoredEncryptedShareKeyPair) {
+    try {
+      const response = await fetch("/k", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          keyId: keyPair.keyId,
+          publicKeySpki: keyPair.publicKeySpki,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to upload public key reference.");
+      }
+      const payload = (await response.json()) as { url?: string };
+      if (typeof payload.url !== "string" || !payload.url) {
+        throw new Error("Public key upload did not return a key URL.");
+      }
+      await navigator.clipboard.writeText(
+        buildEncryptedShareAgentInstructions({
+          sessionId,
+          baseUrl: window.location.origin,
+          publicKeyUrl: payload.url,
+        })
+      );
+      setCopyStatus("copied");
+      window.setTimeout(() => setCopyStatus("idle"), 1500);
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  async function enableEncryption() {
+    try {
+      const keyPair = await generateEncryptedShareKeyPair();
+      writeStoredEncryptedShareKeyPair(window.localStorage, keyPair);
+      setKeyState({ kind: "ready", keyPair });
+      await copyAgentInstructions(keyPair);
+    } catch (error) {
+      setKeyState({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate and store the encrypted share keypair.",
+      });
+    }
+  }
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -117,18 +205,38 @@ export function EncryptedShareClient({
           <div>
             <h2 className="text-base font-semibold">Encrypted document share</h2>
             <p className="text-sm text-muted-foreground">
-              The decryption key stays in the URL fragment and is handled only in this browser.
+              The private key stays in this browser's localStorage and the page only shares a short-lived public-key URL with the agent.
             </p>
+            {copyStatus === "copied" && (
+              <p className="mt-2 text-sm text-emerald-300">Agent instructions copied.</p>
+            )}
+            {copyStatus === "failed" && (
+              <p className="mt-2 text-sm text-amber-300">
+                Clipboard access failed. Try the copy button again from this page.
+              </p>
+            )}
           </div>
-          <Button
-            onClick={async () => {
-              await fetch(`/s/${sessionId}/done`, { method: "POST" });
-              setIsDone(true);
-            }}
-            disabled={isDone || state.kind !== "ready"}
-          >
-            {isDone ? "Done" : "Done Reading"}
-          </Button>
+          <div className="flex items-center gap-3">
+            {keyState.kind === "ready" && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await copyAgentInstructions(keyState.keyPair);
+                }}
+              >
+                Copy Agent Instructions
+              </Button>
+            )}
+            <Button
+              onClick={async () => {
+                await fetch(`/s/${sessionId}/done`, { method: "POST" });
+                setIsDone(true);
+              }}
+              disabled={isDone || state.kind !== "ready"}
+            >
+              {isDone ? "Done" : "Done Reading"}
+            </Button>
+          </div>
         </div>
 
         {state.kind === "loading" && (
@@ -140,12 +248,19 @@ export function EncryptedShareClient({
           </section>
         )}
 
-        {state.kind === "locked" && (
+        {state.kind === "needs_key" && (
           <section className="rounded-3xl border border-amber-500/30 bg-amber-500/5 px-8 py-16 text-center shadow-[0_24px_80px_-32px_rgba(0,0,0,0.55)]">
-            <h3 className="text-lg font-semibold">Missing decryption key</h3>
+            <h3 className="text-lg font-semibold">Enable end-to-end encryption?</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Re-open this page with a <code>#key=...</code> fragment. The server never receives that fragment.
+              This encrypted-share workflow stores a private key in this browser with localStorage.
+              If you continue, the app will generate your keypair locally, upload a 24-hour
+              public-key reference, and copy the agent instructions to your clipboard.
             </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <Button onClick={() => void enableEncryption()}>
+                Enable & Copy Instructions
+              </Button>
+            </div>
           </section>
         )}
 

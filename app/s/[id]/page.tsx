@@ -34,6 +34,15 @@ export default async function SessionPage({
   const toolId = await session.getToolId();
 
   if (phase === "awaiting_init") {
+    if (toolId === "share") {
+      return (
+        <EncryptedShareClient
+          sessionId={id}
+          payload=""
+          isDone={false}
+        />
+      );
+    }
     return (
       <SessionAwaitingInit
         title={titleForTool(toolId)}

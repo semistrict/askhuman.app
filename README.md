@@ -37,7 +37,7 @@ Compatibility aliases:
 
 ## Encrypted Share
 
-`/share` is a zero-knowledge document handoff: the agent encrypts locally, uploads only ciphertext JSON, and opens the reviewer URL with the key in `#key=...`. The fragment never reaches the server, and the browser decrypts with Web Crypto before rendering the markdown.
+`/share` is an end-to-end encrypted document handoff: the reviewer browser stores a private key in localStorage, uploads only a 24-hour public-key reference, and the agent uploads only ciphertext JSON. The server never receives the private key or plaintext.
 
 ## Development
 
