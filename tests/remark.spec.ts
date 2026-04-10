@@ -65,6 +65,98 @@ test.describe("Presentation", () => {
     expect((await actionRes.json()).status).toBe("done");
   });
 
+  test("arrow keys navigate slides without hijacking text input", async ({ page, request }) => {
+    const { sessionId } = await startPresentSession(request);
+    const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
+    await page.goto(`/s/${sessionId}`);
+
+    await expect(page.locator("header h1")).toHaveText("Opening");
+    await expect(page.getByText("Welcome to the deck.")).toBeVisible();
+
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
+    await expect(page.getByText("Welcome to the deck.")).toHaveCount(0);
+
+    await request.post(`/s/${sessionId}/threads`, { data: { text: "General comment" } });
+    const textarea = page.getByPlaceholder("General comment...");
+    await textarea.fill("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+
+    await expect(textarea).toHaveValue("ArrowLeft");
+    await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
+
+    await page.locator("body").click({ position: { x: 20, y: 20 } });
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByText("Welcome to the deck.")).toBeVisible();
+
+    await request.post(`/s/${sessionId}/done`);
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
+    expect((await actionRes.json()).status).toBe("done");
+  });
+
+  test("escape clears the inline selection comment composer", async ({ page, request }) => {
+    const { sessionId } = await startPresentSession(request);
+    const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
+    await page.goto(`/s/${sessionId}`);
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
+
+    const selectionPoint = await page
+      .locator("main article p")
+      .filter({ hasText: "This slide contains anchorable text for feedback." })
+      .evaluate((element) => {
+        const node = element.firstChild;
+        if (!node || node.nodeType !== Node.TEXT_NODE) {
+          throw new Error("Expected a text node");
+        }
+        const text = node.textContent ?? "";
+        const start = text.indexOf("anchorable text");
+        const end = start + "anchorable text".length;
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, end);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        const rect = range.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      });
+
+    await page.mouse.move(selectionPoint.x, selectionPoint.y);
+    await page.getByTestId("selection-comment-trigger").click();
+    const composer = page.getByPlaceholder("Comment on this selection...");
+    await composer.fill("This should clear.");
+    await page.keyboard.press("Escape");
+
+    await expect(composer).toHaveCount(0);
+    await request.post(`/s/${sessionId}/done`);
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
+    expect((await actionRes.json()).status).toBe("done");
+  });
+
+  test("slide picker jumps by slide number and heading", async ({ page, request }) => {
+    const { sessionId } = await startPresentSession(request);
+    const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
+    await page.goto(`/s/${sessionId}`);
+
+    await page.getByTestId("slide-picker-trigger").click();
+    await expect(page.getByTestId("slide-picker-option-2")).toContainText("Second Slide");
+    await page.getByTestId("slide-picker-option-2").click();
+    await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
+    await expect(page.getByText("Welcome to the deck.")).toHaveCount(0);
+
+    await request.post(`/s/${sessionId}/done`);
+    const actionRes = await actionPromise;
+    expect(actionRes.status).toBe(200);
+    expect((await actionRes.json()).status).toBe("done");
+  });
+
   test("selection comments include selection text and context in the action response", async ({
     page,
     request,

@@ -60,6 +60,11 @@ function getDeckTitle(markdown: string): string {
   return match?.[1]?.trim() || "Slides";
 }
 
+function getSlideTitle(slideMarkdown: string, index: number): string {
+  const match = slideMarkdown.match(/^#\s+(.+)$/m);
+  return match?.[1]?.trim() || `Slide ${index + 1}`;
+}
+
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -109,6 +114,10 @@ export function PresentClient({
 }: Props) {
   const slides = useMemo(() => splitSlides(markdown), [markdown]);
   const deckTitle = useMemo(() => getDeckTitle(markdown), [markdown]);
+  const slideTitles = useMemo(
+    () => slides.map((slide, index) => getSlideTitle(slide, index)),
+    [slides]
+  );
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [isDone, setIsDone] = useState(initialIsDone);
@@ -117,11 +126,14 @@ export function PresentClient({
   const [selectionCommentText, setSelectionCommentText] = useState("");
   const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
   const [selectionComposerOpen, setSelectionComposerOpen] = useState(false);
+  const [slidePickerOpen, setSlidePickerOpen] = useState(false);
   const slideRef = useRef<HTMLDivElement | null>(null);
   const slideAreaRef = useRef<HTMLDivElement | null>(null);
   const selectionRangeRef = useRef<Range | null>(null);
+  const slidePickerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("present-comments-width", 384);
+  const lastSlideIndex = Math.max(0, slides.length - 1);
 
   const createThread = useCallback(
     async (
@@ -277,6 +289,7 @@ export function PresentClient({
     setSelectionCommentText("");
     setSelectionComposerOpen(false);
     setSelectionMenuVisible(false);
+    setSlidePickerOpen(false);
     selectionRangeRef.current = null;
     updatePersistentSelectionHighlight(null);
     window.getSelection()?.removeAllRanges();
@@ -287,6 +300,66 @@ export function PresentClient({
       updatePersistentSelectionHighlight(null);
     };
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (selectionComposerOpen) {
+          event.preventDefault();
+          setSelectionCommentText("");
+          setSelectionComposerOpen(false);
+          setSelectionMenuVisible(false);
+          return;
+        }
+        if (slidePickerOpen) {
+          event.preventDefault();
+          setSlidePickerOpen(false);
+          return;
+        }
+      }
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        if (currentSlideIndex >= lastSlideIndex) return;
+        event.preventDefault();
+        setCurrentSlideIndex((index) => Math.min(lastSlideIndex, index + 1));
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        if (currentSlideIndex <= 0) return;
+        event.preventDefault();
+        setCurrentSlideIndex((index) => Math.max(0, index - 1));
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [currentSlideIndex, lastSlideIndex, selectionComposerOpen, slidePickerOpen]);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (!slidePickerOpen) return;
+      const target = event.target;
+      if (target instanceof Node && slidePickerRef.current?.contains(target)) {
+        return;
+      }
+      setSlidePickerOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [slidePickerOpen]);
 
   const currentSlide = slides[currentSlideIndex] ?? "";
   const articleClassName = "prose prose-invert max-w-none text-[1.05rem] leading-8 selection:bg-amber-400/30";
@@ -314,7 +387,45 @@ export function PresentClient({
               <div className="font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground">
                 select text on the slide to leave an anchored comment
               </div>
-              <div className="flex gap-2">
+              <div ref={slidePickerRef} className="relative flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-testid="slide-picker-trigger"
+                  className="max-w-[22rem] justify-start truncate font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground"
+                  onClick={() => setSlidePickerOpen((open) => !open)}
+                >
+                  {currentSlideIndex + 1}. {slideTitles[currentSlideIndex] ?? `Slide ${currentSlideIndex + 1}`}
+                </Button>
+                {slidePickerOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-2 max-h-72 w-[min(28rem,calc(100vw-4rem))] overflow-auto rounded-2xl border border-border/80 bg-card/95 p-2 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.65)] backdrop-blur">
+                    <div className="mb-2 px-2 pt-1 text-[11px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
+                      Jump to slide
+                    </div>
+                    <div className="space-y-1">
+                      {slideTitles.map((title, index) => (
+                        <button
+                          key={`${index}-${title}`}
+                          type="button"
+                          data-testid={`slide-picker-option-${index + 1}`}
+                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60 ${
+                            index === currentSlideIndex ? "bg-muted/70" : ""
+                          }`}
+                          onClick={() => {
+                            setCurrentSlideIndex(index);
+                            setSlidePickerOpen(false);
+                          }}
+                        >
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                            {index + 1}
+                          </span>
+                          <span className="truncate text-foreground">{title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -326,8 +437,8 @@ export function PresentClient({
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={currentSlideIndex >= slides.length - 1}
-                  onClick={() => setCurrentSlideIndex((index) => Math.min(slides.length - 1, index + 1))}
+                  disabled={currentSlideIndex >= lastSlideIndex}
+                  onClick={() => setCurrentSlideIndex((index) => Math.min(lastSlideIndex, index + 1))}
                 >
                   Next
                 </Button>
@@ -367,9 +478,15 @@ export function PresentClient({
                 className={slideSurfaceClassName}
               >
                 <div className="mb-8 flex items-center justify-end">
-                  <div className="font-mono text-xs text-muted-foreground">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="font-mono text-xs text-muted-foreground"
+                    onClick={() => setSlidePickerOpen((open) => !open)}
+                  >
                     slide {currentSlideIndex + 1}
-                  </div>
+                  </Button>
                 </div>
 
                 <article className={articleClassName}>
