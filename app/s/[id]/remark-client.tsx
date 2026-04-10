@@ -7,7 +7,7 @@ import type { Thread } from "@/worker/session";
 import { SessionChrome } from "@/components/session-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { AnchoredCommentComposer } from "@/components/anchored-comment-composer";
 import { CommentPanel } from "@/components/comment-panel";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import {
@@ -19,16 +19,45 @@ import {
 
 type SelectionDraft = {
   text: string;
-  context: string;
   line: number | null;
+  context: string;
   locationLabel: string;
+  anchorTop: number;
+  anchorLeft: number;
+  rectTop: number;
+  rectLeft: number;
+  rectRight: number;
+  rectBottom: number;
 };
+
+function updatePersistentSelectionHighlight(range: Range | null) {
+  try {
+    const css = (globalThis as typeof globalThis & {
+      CSS?: { highlights?: Map<string, unknown> & { set: Function; delete: Function } };
+    }).CSS;
+    if (!css?.highlights || typeof Highlight === "undefined") {
+      return;
+    }
+    if (!range) {
+      css.highlights.delete("askhuman-selection");
+      return;
+    }
+    css.highlights.set("askhuman-selection", new Highlight(range));
+  } catch (error) {
+    console.error("Failed to update persistent selection highlight", error);
+  }
+}
 
 function splitSlides(markdown: string): string[] {
   return markdown
     .split(/\n\s*---\s*\n/g)
     .map((slide) => slide.trim())
     .filter(Boolean);
+}
+
+function getDeckTitle(markdown: string): string {
+  const match = markdown.match(/^#\s+(.+)$/m);
+  return match?.[1]?.trim() || "Slides";
 }
 
 function compactWhitespace(value: string): string {
@@ -79,20 +108,31 @@ export function PresentClient({
   isDone: initialIsDone,
 }: Props) {
   const slides = useMemo(() => splitSlides(markdown), [markdown]);
+  const deckTitle = useMemo(() => getDeckTitle(markdown), [markdown]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [isDone, setIsDone] = useState(initialIsDone);
   const [panelCommentText, setPanelCommentText] = useState("");
   const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null);
   const [selectionCommentText, setSelectionCommentText] = useState("");
+  const [selectionMenuVisible, setSelectionMenuVisible] = useState(false);
+  const [selectionComposerOpen, setSelectionComposerOpen] = useState(false);
   const slideRef = useRef<HTMLDivElement | null>(null);
+  const slideAreaRef = useRef<HTMLDivElement | null>(null);
+  const selectionRangeRef = useRef<Range | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [commentsWidth, setCommentsWidth] = usePersistedWidth("present-comments-width", 384);
 
   const createThread = useCallback(
     async (
       text: string,
-      metadata?: { line?: number | null; locationLabel?: string; selectionText?: string; selectionContext?: string }
+      metadata?: {
+        line?: number | null;
+        locationLabel?: string;
+        selectionText?: string;
+        selectionContext?: string;
+        preserveSelection?: boolean;
+      }
     ) => {
       const res = await fetch(`/s/${sessionId}/threads`, {
         method: "POST",
@@ -109,9 +149,19 @@ export function PresentClient({
       const thread: Thread = await res.json();
       setThreads((prev) => (prev.some((t) => t.id === thread.id) ? prev : [...prev, thread]));
       setPanelCommentText("");
-      setSelectionCommentText("");
-      setSelectionDraft(null);
-      window.getSelection()?.removeAllRanges();
+      if (metadata?.preserveSelection) {
+        setSelectionCommentText("");
+        setSelectionComposerOpen(false);
+        setSelectionMenuVisible(false);
+      } else {
+        setSelectionCommentText("");
+        setSelectionDraft(null);
+        setSelectionMenuVisible(false);
+        setSelectionComposerOpen(false);
+        selectionRangeRef.current = null;
+        updatePersistentSelectionHighlight(null);
+        window.getSelection()?.removeAllRanges();
+      }
     },
     [sessionId]
   );
@@ -151,10 +201,15 @@ export function PresentClient({
   const captureSelection = useCallback(() => {
     if (isDone) return;
     const container = slideRef.current;
-    if (!container) return;
+    const slideArea = slideAreaRef.current;
+    if (!container || !slideArea) return;
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      selectionRangeRef.current = null;
+      updatePersistentSelectionHighlight(null);
       setSelectionDraft(null);
+      setSelectionComposerOpen(false);
+      setSelectionMenuVisible(false);
       return;
     }
 
@@ -165,44 +220,81 @@ export function PresentClient({
         ? (commonAncestor as Element)
         : commonAncestor.parentElement;
     if (!anchor || !container.contains(anchor)) {
+      selectionRangeRef.current = null;
+      updatePersistentSelectionHighlight(null);
       setSelectionDraft(null);
+      setSelectionComposerOpen(false);
+      setSelectionMenuVisible(false);
       return;
     }
 
     const text = compactWhitespace(selection.toString());
     if (!text) {
+      selectionRangeRef.current = null;
+      updatePersistentSelectionHighlight(null);
       setSelectionDraft(null);
+      setSelectionComposerOpen(false);
+      setSelectionMenuVisible(false);
       return;
     }
+
+    const persistentRange = range.cloneRange();
+    selectionRangeRef.current = persistentRange;
+    updatePersistentSelectionHighlight(persistentRange);
 
     const slideMarkdown = slides[currentSlideIndex] ?? "";
     const line = approximateLineNumber(slideMarkdown, text);
     const locationLabel = line != null
       ? `slide ${currentSlideIndex + 1}, L${line}`
       : `slide ${currentSlideIndex + 1}`;
+    const rangeRect = range.getBoundingClientRect();
+    const areaRect = slideArea.getBoundingClientRect();
+    const popoverWidth = Math.min(420, Math.max(280, slideArea.clientWidth - 32));
+    const rawLeft = rangeRect.left - areaRect.left + slideArea.scrollLeft;
+    const clampedLeft = Math.min(
+      Math.max(slideArea.scrollLeft + 16, rawLeft),
+      Math.max(slideArea.scrollLeft + 16, slideArea.scrollLeft + slideArea.clientWidth - popoverWidth - 16)
+    );
 
     setSelectionDraft({
       text,
       context: getSelectionContext(container.innerText, text),
       line,
       locationLabel,
+      anchorTop: rangeRect.bottom - areaRect.top + slideArea.scrollTop + 12,
+      anchorLeft: clampedLeft,
+      rectTop: rangeRect.top - areaRect.top + slideArea.scrollTop,
+      rectLeft: rangeRect.left - areaRect.left + slideArea.scrollLeft,
+      rectRight: rangeRect.right - areaRect.left + slideArea.scrollLeft,
+      rectBottom: rangeRect.bottom - areaRect.top + slideArea.scrollTop,
     });
+    setSelectionComposerOpen(false);
+    setSelectionMenuVisible(false);
   }, [currentSlideIndex, isDone, slides]);
 
   useEffect(() => {
     setSelectionDraft(null);
     setSelectionCommentText("");
+    setSelectionComposerOpen(false);
+    setSelectionMenuVisible(false);
+    selectionRangeRef.current = null;
+    updatePersistentSelectionHighlight(null);
     window.getSelection()?.removeAllRanges();
   }, [currentSlideIndex]);
 
+  useEffect(() => {
+    return () => {
+      updatePersistentSelectionHighlight(null);
+    };
+  }, []);
+
   const currentSlide = slides[currentSlideIndex] ?? "";
-  const shellLabel = "remark markdown presentation";
   const articleClassName = "prose prose-invert max-w-none text-[1.05rem] leading-8 selection:bg-amber-400/30";
   const slideSurfaceClassName = "mx-auto min-h-full max-w-5xl rounded-[28px] border border-border/70 bg-card/80 px-12 py-12 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-sm";
 
   return (
     <SessionChrome
-      title="Presentation"
+      title={deckTitle}
       sessionId={sessionId}
       headerBadges={
         <>
@@ -242,17 +334,39 @@ export function PresentClient({
               </div>
             </div>
 
-            <div className="relative flex-1 overflow-auto px-8 py-8">
+            <div
+              ref={slideAreaRef}
+              className="relative flex-1 overflow-auto px-8 py-8"
+              onMouseMove={(event) => {
+                if (!selectionDraft || selectionComposerOpen) {
+                  setSelectionMenuVisible(false);
+                  return;
+                }
+                if (selectionMenuVisible) {
+                  return;
+                }
+                const slideArea = slideAreaRef.current;
+                if (!slideArea) return;
+                const areaRect = slideArea.getBoundingClientRect();
+                const x = event.clientX - areaRect.left + slideArea.scrollLeft;
+                const y = event.clientY - areaRect.top + slideArea.scrollTop;
+                const withinBounds =
+                  x >= selectionDraft.rectLeft - 6 &&
+                  x <= selectionDraft.rectRight + 6 &&
+                  y >= selectionDraft.rectTop - 6 &&
+                  y <= selectionDraft.rectBottom + 6;
+                if (withinBounds) {
+                  setSelectionMenuVisible(true);
+                }
+              }}
+            >
               <div
                 ref={slideRef}
                 onMouseUp={captureSelection}
                 onKeyUp={captureSelection}
                 className={slideSurfaceClassName}
               >
-                <div className="mb-8 flex items-center justify-between">
-                  <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">
-                    {shellLabel}
-                  </div>
+                <div className="mb-8 flex items-center justify-end">
                   <div className="font-mono text-xs text-muted-foreground">
                     slide {currentSlideIndex + 1}
                   </div>
@@ -265,52 +379,49 @@ export function PresentClient({
                 </article>
               </div>
 
-              {selectionDraft && !isDone && (
-                <div className="pointer-events-auto absolute inset-x-8 bottom-6 mx-auto max-w-3xl rounded-2xl border border-amber-500/30 bg-[#1d1810]/95 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-md">
-                  <div className="mb-2 flex items-center justify-between gap-4">
-                    <div>
-                      <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-amber-200/70">
-                        Anchored Comment
-                      </div>
-                      <div className="text-sm text-amber-50">{selectionDraft.locationLabel}</div>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectionDraft(null)}>
-                      Cancel
-                    </Button>
-                  </div>
-                  <div className="mb-3 rounded-xl border border-amber-500/20 bg-black/20 px-3 py-2 text-sm text-amber-50/90">
-                    “{selectionDraft.text}”
-                    {selectionDraft.context && (
-                      <div className="mt-1 text-xs text-amber-100/60">{selectionDraft.context}</div>
-                    )}
-                  </div>
-                  <Textarea
-                    value={selectionCommentText}
-                    onChange={(event) => setSelectionCommentText(event.target.value)}
-                    placeholder="Comment on this selection..."
-                    className="mb-3 min-h-[84px] border-amber-500/20 bg-black/20 text-sm"
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setSelectionDraft(null)}>
-                      Dismiss
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        createThread(selectionCommentText, {
-                          line: selectionDraft.line,
-                          locationLabel: selectionDraft.locationLabel,
-                          selectionText: selectionDraft.text,
-                          selectionContext: selectionDraft.context,
-                        })
-                      }
-                      disabled={!selectionCommentText.trim()}
-                    >
-                      Comment on Selection
-                    </Button>
-                  </div>
+              {selectionDraft && !isDone && selectionMenuVisible && !selectionComposerOpen && (
+                <div
+                  className="pointer-events-auto absolute z-20"
+                  style={{ top: selectionDraft.anchorTop, left: selectionDraft.anchorLeft }}
+                >
+                  <Button
+                    data-testid="selection-comment-trigger"
+                    size="sm"
+                    variant="secondary"
+                    className="shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+                    onClick={() => {
+                      setSelectionComposerOpen(true);
+                      setSelectionMenuVisible(false);
+                    }}
+                  >
+                    Comment
+                  </Button>
                 </div>
+              )}
+
+              {selectionDraft && !isDone && selectionComposerOpen && (
+                <AnchoredCommentComposer
+                  className="pointer-events-auto absolute z-20 w-[min(420px,calc(100%-2rem))]"
+                  style={{ top: selectionDraft.anchorTop, left: selectionDraft.anchorLeft }}
+                  value={selectionCommentText}
+                  onChange={setSelectionCommentText}
+                  onClose={() => {
+                    setSelectionComposerOpen(false);
+                    setSelectionMenuVisible(false);
+                  }}
+                  onSubmit={() =>
+                    createThread(selectionCommentText, {
+                      line: selectionDraft.line,
+                      locationLabel: selectionDraft.locationLabel,
+                      selectionText: selectionDraft.text,
+                      selectionContext: selectionDraft.context,
+                      preserveSelection: true,
+                    })
+                  }
+                  placeholder="Comment on this selection..."
+                  submitLabel="Comment"
+                  submitButtonTestId="selection-comment-submit"
+                />
               )}
             </div>
           </div>
@@ -334,6 +445,7 @@ export function PresentClient({
           />
         </aside>
       </div>
+      <style>{`::highlight(askhuman-selection) { background: rgba(251, 191, 36, 0.28); }`}</style>
     </SessionChrome>
   );
 }

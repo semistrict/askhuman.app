@@ -10,6 +10,7 @@ import {
   APP_SETTINGS_STORAGE_KEY,
   DEFAULT_APP_SETTINGS,
   getEffectiveReviewerName,
+  getBrowserStorage,
   openAppSettings,
   readAppSettings,
   writeAppSettings,
@@ -39,11 +40,15 @@ declare global {
 }
 
 function loadSettings(): AppSettings {
-  return readAppSettings(window.localStorage);
+  const storage = getBrowserStorage(window);
+  return storage ? readAppSettings(storage) : DEFAULT_APP_SETTINGS;
 }
 
 function saveSettings(next: AppSettings): void {
-  writeAppSettings(window.localStorage, next);
+  const storage = getBrowserStorage(window);
+  if (storage) {
+    writeAppSettings(storage, next);
+  }
   window.dispatchEvent(new Event(APP_SETTINGS_CHANGED_EVENT));
 }
 

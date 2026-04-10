@@ -88,6 +88,7 @@ export async function createDiffSession(
   }
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("diff");
+  await session.setEncryptionMode("plain");
   await session.setDescription(description);
   await session.replaceHunks(parsed);
 
@@ -118,6 +119,7 @@ export async function updateDiffSession(
     await session.resetDone();
   }
 
+  await session.setEncryptionMode("plain");
   const newHunkIds = new Set(parsed.map((h) => createStableHunkId(h)));
   await session.markOutdatedThreads(newHunkIds);
   await session.setDescription(description);

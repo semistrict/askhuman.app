@@ -1,6 +1,6 @@
 share_invalid_payload: >-
   Invalid encrypted share payload. Submit JSON with version, alg,
-  recipientKeyId, encryptedKey, iv, and ciphertext fields.
+  recipientKeyId, encryptedKey, iv, ciphertext, and mac fields.
 
 share_timeout: >-
   The encrypted document is still open. Poll again.

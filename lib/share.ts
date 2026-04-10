@@ -23,6 +23,7 @@ export async function createEncryptedShareSession(
 ) {
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("share");
+  await session.setEncryptionMode("e2e");
   await session.setContent(JSON.stringify(payload));
 
   return {
@@ -42,6 +43,7 @@ export async function updateEncryptedShareSession(
   }
 
   await session.setContentType("share");
+  await session.setEncryptionMode("e2e");
   await session.setContent(JSON.stringify(payload));
   await session.broadcastViewUpdate();
 

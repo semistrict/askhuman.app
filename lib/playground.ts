@@ -22,6 +22,7 @@ export async function createPlayground(
   }
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("playground");
+  await session.setEncryptionMode("plain");
   await session.setContent(html);
 
   return {
@@ -48,6 +49,7 @@ export async function updatePlayground(
     await session.resetDone();
   }
 
+  await session.setEncryptionMode("plain");
   await session.setContent(html);
   await session.broadcastViewUpdate();
 

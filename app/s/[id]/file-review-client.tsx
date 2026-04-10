@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { SessionChrome } from "@/components/session-chrome";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
+import { AnchoredCommentComposer } from "@/components/anchored-comment-composer";
 import { MarkdownLine } from "@/components/markdown-line";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import {
@@ -92,6 +92,15 @@ function escapeHtml(text: string): string {
 function basename(path: string): string {
   const parts = path.split("/");
   return parts[parts.length - 1];
+}
+
+function buildLineSelectionContext(lines: string[], line: number): string {
+  const selected = lines[line - 1] ?? "";
+  const before = line > 1 ? lines[line - 2] : "";
+  const after = line < lines.length ? lines[line] : "";
+  return [before && `prev: ${before}`, `line: ${selected}`, after && `next: ${after}`]
+    .filter(Boolean)
+    .join(" | ");
 }
 
 export interface ServerFile {
@@ -219,10 +228,24 @@ export function FileReviewClient({
 
   const createThread = useCallback(
     async (filePath: string | null, line: number | null, text: string) => {
+      const selectionText =
+        line != null && line > 0 ? currentLines[line - 1] ?? "" : null;
+      const locationLabel =
+        line != null && line > 0
+          ? `${selectedFile || filePath || "doc.md"}:${line}`
+          : filePath || selectedFile || null;
       const res = await fetch(`/s/${sessionId}/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filePath, line, text }),
+        body: JSON.stringify({
+          filePath,
+          line,
+          text,
+          locationLabel,
+          selectionText,
+          selectionContext:
+            line != null && line > 0 ? buildLineSelectionContext(currentLines, line) : null,
+        }),
       });
       const thread: Thread = await res.json();
       setThreads((prev) => {
@@ -234,7 +257,7 @@ export function FileReviewClient({
       setPanelCommentText("");
       setActiveLineComment(null);
     },
-    [sessionId]
+    [currentLines, selectedFile, sessionId]
   );
 
   const requestRevision = useCallback(async () => {
@@ -389,7 +412,7 @@ export function FileReviewClient({
                   const highlighted = highlightLine(line, currentLanguage);
 
                   return (
-                    <div key={i} id={`line-${lineNum}`}>
+                    <div key={i} id={`line-${lineNum}`} className="relative">
                       <div
                         className={`group flex border-b border-border/30 last:border-b-0 ${
                           hasThread
@@ -439,27 +462,16 @@ export function FileReviewClient({
                       ))}
 
                       {isActive && (
-                        <div className="border-t border-border bg-muted/20 px-4 py-3 ml-12">
-                          <Textarea
-                            value={newCommentText}
-                            onChange={(e) => setNewCommentText(e.target.value)}
-                            placeholder={`Comment on ${basename(selectedFile)}:${lineNum}...`}
-                            className="mb-2 bg-background font-sans text-sm min-h-[60px]"
-                            autoFocus
-                          />
-                          <div className="flex gap-2 justify-end">
-                            <Button variant="ghost" size="sm" onClick={() => setActiveLineComment(null)}>Cancel</Button>
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                createThread(isDocReview ? null : selectedFile, lineNum, newCommentText)
-                              }
-                              disabled={!newCommentText.trim()}
-                            >
-                              Comment
-                            </Button>
-                          </div>
-                        </div>
+                        <AnchoredCommentComposer
+                          className="absolute left-16 right-4 top-full z-20 mt-2"
+                          value={newCommentText}
+                          onChange={setNewCommentText}
+                          onClose={() => setActiveLineComment(null)}
+                          onSubmit={() =>
+                            createThread(isDocReview ? null : selectedFile, lineNum, newCommentText)
+                          }
+                          placeholder={`Comment on ${basename(selectedFile)}...`}
+                        />
                       )}
                     </div>
                   );

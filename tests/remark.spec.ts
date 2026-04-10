@@ -56,7 +56,7 @@ test.describe("Presentation", () => {
     const { sessionId } = await startPresentSession(request);
     const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
     await page.goto(`/s/${sessionId}`);
-    await expect(page.getByRole("heading", { name: "Presentation" })).toBeVisible();
+    await expect(page.locator("header h1")).toHaveText("Opening");
     await expect(page.getByText("Welcome to the deck.")).toBeVisible();
 
     await request.post(`/s/${sessionId}/done`);
@@ -76,7 +76,7 @@ test.describe("Presentation", () => {
     await page.getByRole("button", { name: "Next" }).click();
     await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
 
-    await page
+    const selectionPoint = await page
       .locator("main article p")
       .filter({ hasText: "This slide contains anchorable text for feedback." })
       .evaluate((element) => {
@@ -94,10 +94,41 @@ test.describe("Presentation", () => {
         selection?.removeAllRanges();
         selection?.addRange(range);
         element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        const rect = range.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
       });
 
+    await expect(page.getByPlaceholder("Comment on this selection...")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+    await expect(page.locator("text=/slide 2, L\\d+/")).toHaveCount(0);
+    await expect(page.getByTestId("selection-comment-trigger")).toHaveCount(0);
+    await page.mouse.move(selectionPoint.x, selectionPoint.y);
+    await expect(page.getByTestId("selection-comment-trigger")).toBeVisible();
+    const triggerBox = await page.getByTestId("selection-comment-trigger").boundingBox();
+    if (!triggerBox) {
+      throw new Error("Expected selection comment trigger bounding box");
+    }
+    await page.mouse.move(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+    await expect(page.getByTestId("selection-comment-trigger")).toBeVisible();
+    await page.getByTestId("selection-comment-trigger").click();
     await page.getByPlaceholder("Comment on this selection...").fill("Tighten this wording.");
-    await page.getByRole("button", { name: "Comment on Selection" }).click();
+    await page.getByTestId("selection-comment-submit").click();
+    const sidebar = page.locator("aside").last();
+    await expect(sidebar.getByText(/anchorable text/)).toBeVisible();
+    await expect(sidebar.getByText("slide 2", { exact: true })).toBeVisible();
+    await expect
+      .poll(async () =>
+        await page.evaluate(() => {
+          const css = window.CSS as typeof window.CSS & {
+            highlights?: { has: (name: string) => boolean };
+          };
+          return css.highlights?.has("askhuman-selection") ?? false;
+        })
+      )
+      .toBe(true);
     await request.post(`/s/${sessionId}/done`);
 
     const actionRes = await actionPromise;
@@ -128,7 +159,7 @@ test.describe("Presentation", () => {
       { response: "Updated the deck." }
     );
     await page.reload();
-    await expect(page.getByText("Updated Deck")).toBeVisible();
+    await expect(page.locator("header h1")).toHaveText("Updated Deck");
     await expect(page.getByText("Old note")).toBeVisible();
     await expect(page.getByText("outdated")).toBeVisible();
     await request.post(`/s/${sessionId}/done`);
@@ -138,19 +169,20 @@ test.describe("Presentation", () => {
     expect((await updateRes.json()).status).toBe("done");
   });
 
-  test("standalone poll still works after a presentation is initialized", async ({ page, request }) => {
+  test("standalone poll is rejected while another presentation waiter is already active", async ({
+    page,
+    request,
+  }) => {
     const { sessionId } = await startPresentSession(request);
     await page.goto(`/s/${sessionId}`);
 
     const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
     await expect(page.getByText("Welcome to the deck.")).toBeVisible();
-    await request.post(`/s/${sessionId}/threads`, { data: { text: "Looks good" } });
-    await request.post(`/s/${sessionId}/done`);
 
     const pollRes = await request.get(`/present/${sessionId}/poll`, { headers: JSON_ACCEPT });
-    const body = await pollRes.json();
-    expect(body.status).toBe("done");
-    expect(body.threads[0].messages[0].text).toBe("Looks good");
+    expect(pollRes.status()).toBe(409);
+    expect((await pollRes.json()).error).toContain("already waiting");
+    await request.post(`/s/${sessionId}/done`);
     await actionPromise;
   });
 

@@ -2,6 +2,7 @@ import {
   APP_SETTINGS_CHANGED_EVENT,
   APP_SETTINGS_STORAGE_KEY,
   ensureReviewerPresenceName,
+  getBrowserStorage,
 } from "@/lib/app-settings";
 
 type DebugEvalMessage = {
@@ -116,12 +117,13 @@ async function executeDebugCode(code: string): Promise<unknown> {
 
 export function sendTabHello(ws: WebSocket, pageState: "awaiting_init" | "active" = "active") {
   if (!canSend(ws)) return;
+  const storage = getBrowserStorage(window);
   const payload: TabHelloMessage = {
     type: "tab_hello",
     url: window.location.href,
     title: document.title,
     userAgent: navigator.userAgent,
-    reviewerName: ensureReviewerPresenceName(window.localStorage),
+    reviewerName: storage ? ensureReviewerPresenceName(storage) : "You",
     pageState,
   };
   ws.send(JSON.stringify(payload));
@@ -172,6 +174,7 @@ export async function handleDebugSocketMessage(
     const value = await executeDebugCode(message.code);
     response.result = serializeDebugValue(value);
   } catch (error) {
+    console.error("Failed to execute debug websocket code", error);
     response.ok = false;
     response.error =
       error instanceof Error

@@ -22,9 +22,13 @@ interface CommentPanelProps {
   statusTone?: "default" | "warning" | "error";
 }
 
-function basename(path: string): string {
-  const parts = path.split("/");
-  return parts[parts.length - 1];
+function humanPageLabel(locationLabel: string | null | undefined): string | null {
+  if (!locationLabel) return null;
+  const slideMatch = locationLabel.match(/slide\s+\d+/i);
+  if (slideMatch) {
+    return slideMatch[0];
+  }
+  return null;
 }
 
 export function CommentPanel({
@@ -131,17 +135,8 @@ export function CommentPanel({
         {sorted.map((thread) => {
           const first = thread.messages[0];
           const isInline = thread.hunk_id != null || thread.line != null;
-          const locationLabel = thread.location_label
-            ? thread.location_label
-            : thread.file_path && thread.line != null
-              ? `${basename(thread.file_path)}:${thread.line}`
-            : thread.file_path
-              ? basename(thread.file_path)
-            : thread.hunk_id != null
-              ? `H${thread.hunk_id}:${thread.line}`
-              : thread.line != null
-                ? `L${thread.line}`
-                : "general";
+          const pageLabel = humanPageLabel(thread.location_label);
+          const selectionText = thread.selection_text?.trim() || null;
 
           return (
             <button
@@ -160,15 +155,25 @@ export function CommentPanel({
                 <span className="text-[10px] font-mono uppercase text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                   {first.role}
                 </span>
-                <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded truncate max-w-[140px]">
-                  {locationLabel}
+                <span className="text-[10px] font-mono uppercase text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  {isInline ? "anchored" : "general"}
                 </span>
+                {pageLabel && (
+                  <span className="text-[10px] font-mono uppercase text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                    {pageLabel}
+                  </span>
+                )}
                 {thread.outdated && (
                   <Badge variant="outline" className="text-[9px] py-0 text-muted-foreground">
                     outdated
                   </Badge>
                 )}
               </div>
+              {selectionText && (
+                <p className="mb-1 text-xs italic text-foreground/70 line-clamp-2">
+                  “{selectionText}”
+                </p>
+              )}
               <p className="text-xs font-sans line-clamp-2 text-foreground/80">
                 {first.text}
               </p>

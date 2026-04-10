@@ -6,6 +6,7 @@ import {
   APP_SETTINGS_CHANGED_EVENT,
   APP_SETTINGS_STORAGE_KEY,
   ensureReviewerPresenceName,
+  getBrowserStorage,
   openAppSettings,
 } from "@/lib/app-settings";
 import { SESSION_PRESENCE_EVENT } from "@/lib/debug-tab-client";
@@ -66,7 +67,8 @@ export function HumanPresenceBadge({ sessionId }: HumanPresenceBadgeProps) {
 
   useEffect(() => {
     const syncCurrentName = () => {
-      setCurrentName(ensureReviewerPresenceName(window.localStorage));
+      const storage = getBrowserStorage(window);
+      setCurrentName(storage ? ensureReviewerPresenceName(storage) : null);
     };
 
     syncCurrentName();
@@ -98,7 +100,8 @@ export function HumanPresenceBadge({ sessionId }: HumanPresenceBadgeProps) {
         if (!response.ok) return;
         const payload = (await response.json()) as { tabs?: ConnectedTab[] };
         setServerNames(normalizeNames(payload.tabs ?? []));
-      } catch {
+      } catch (error) {
+        console.error("Failed to refresh human presence badge", error);
         setServerNames([]);
       }
     };

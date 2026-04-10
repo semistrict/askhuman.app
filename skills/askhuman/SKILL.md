@@ -13,6 +13,10 @@ description: >-
 Human-in-the-loop review tools for AI agents. Submit content via
 curl, open the returned URL for the user, poll for their feedback.
 
+Review, diff, present, and playground sessions can optionally switch to
+browser-managed end-to-end encryption before the agent submits content.
+Encrypted share sessions always require end-to-end encryption.
+
 ## Rules
 
 - Do **not** use browser automation tools to act as the human.
@@ -260,7 +264,7 @@ curl -s -X POST https://askhuman.app/share/<sessionId> \
 
 ### Notes
 
-- The JSON body must contain `version`, `alg`, `recipientKeyId`, `encryptedKey`, `iv`, and `ciphertext`.
-- The built-in envelope uses RSA-OAEP-SHA256 to wrap a fresh AES-256-GCM content key.
+- The JSON body must contain `version`, `alg`, `recipientKeyId`, `encryptedKey`, `iv`, `ciphertext`, and `mac`.
+- The built-in envelope uses RSA-OAEP-SHA256 to wrap a fresh `aesKey || hmacKey` blob for AES-256-CBC + HMAC-SHA256.
 - The copied agent instructions include a short-lived key URL that returns `recipientKeyId` and `publicKeySpki`.
 - The reviewer private key stays in that browser's localStorage and is never sent to the server.

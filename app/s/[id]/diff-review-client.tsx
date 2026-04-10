@@ -3,11 +3,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { Thread } from "@/worker/session";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { SessionChrome } from "@/components/session-chrome";
 import { ThreadView } from "@/components/thread-view";
 import { CommentPanel } from "@/components/comment-panel";
+import { AnchoredCommentComposer } from "@/components/anchored-comment-composer";
 import { MarkdownLine } from "@/components/markdown-line";
 import { ResizeHandle, usePersistedWidth } from "@/components/resize-handle";
 import ReactMarkdown from "react-markdown";
@@ -134,6 +134,16 @@ function parseHunkContent(hunk: ServerHunk): DiffLine[] {
 
 function isAdditionsOnlyHunk(lines: DiffLine[]): boolean {
   return lines.length > 0 && lines.every((line) => line.type === "add");
+}
+
+function buildDiffSelectionContext(lines: DiffLine[], offset: number): string {
+  const selectedIndex = offset - 1;
+  const prev = selectedIndex > 0 ? lines[selectedIndex - 1]?.text ?? "" : "";
+  const current = lines[selectedIndex]?.text ?? "";
+  const next = selectedIndex + 1 < lines.length ? lines[selectedIndex + 1]?.text ?? "" : "";
+  return [prev && `prev: ${prev}`, `line: ${current}`, next && `next: ${next}`]
+    .filter(Boolean)
+    .join(" | ");
 }
 
 interface Props {
@@ -293,10 +303,26 @@ export function DiffReviewClient({
 
   const createThread = useCallback(
     async (hunkId: string | null, line: number | null, text: string, filePath?: string | null) => {
+      const hunk = hunkId ? hunks.find((entry) => entry.id === hunkId) : null;
+      const parsedLines = hunk ? parseHunkContent(hunk) : [];
+      const selectedLine = line != null ? parsedLines.find((entry) => entry.offset === line) ?? null : null;
+      const selectedLineNumber = selectedLine?.newNum ?? selectedLine?.oldNum ?? null;
       const res = await fetch(`/s/${sessionId}/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hunkId, line, text, filePath }),
+        body: JSON.stringify({
+          hunkId,
+          line,
+          text,
+          filePath,
+          locationLabel:
+            selectedLineNumber != null && filePath
+              ? `${filePath}:${selectedLineNumber}`
+              : filePath ?? null,
+          selectionText: selectedLine?.text ?? null,
+          selectionContext:
+            selectedLine && line != null ? buildDiffSelectionContext(parsedLines, line) : null,
+        }),
       });
       const thread: Thread = await res.json();
       setThreads((prev) => {
@@ -307,7 +333,7 @@ export function DiffReviewClient({
       setPanelCommentText("");
       setActiveComment(null);
     },
-    [sessionId]
+    [hunks, sessionId]
   );
 
   const scrollToLine = useCallback((hunkId: string) => {
@@ -450,7 +476,7 @@ export function DiffReviewClient({
                             const highlighted = highlightLine(diffLine.text, language);
 
                             return (
-                              <div key={`${hunk.id}-${diffLine.offset}`} id={`line-${hunk.id}-${diffLine.offset}`}>
+                              <div key={`${hunk.id}-${diffLine.offset}`} id={`line-${hunk.id}-${diffLine.offset}`} className="relative">
                                 <div className={`group flex border-b border-border/30 last:border-b-0 ${bgClass} ${hasThread ? "ring-1 ring-inset ring-primary/20" : ""}`}>
                                   <span className="w-12 shrink-0 text-right pr-2 py-1 text-muted-foreground/40 text-xs select-none border-r border-border/30">
                                     {diffLine.oldNum ?? ""}
@@ -491,25 +517,14 @@ export function DiffReviewClient({
                                 ))}
 
                                 {isActive && (
-                                  <div className="border-t border-border bg-muted/20 px-4 py-3 ml-36">
-                                    <Textarea
-                                      value={newCommentText}
-                                      onChange={(e) => setNewCommentText(e.target.value)}
-                                      placeholder="Comment on this line..."
-                                      className="mb-2 bg-background font-sans text-sm min-h-[60px]"
-                                      autoFocus
-                                    />
-                                    <div className="flex gap-2 justify-end">
-                                      <Button variant="ghost" size="sm" onClick={() => setActiveComment(null)}>Cancel</Button>
-                                      <Button
-                                        size="sm"
-                                        onClick={() => createThread(hunk.id, diffLine.offset, newCommentText, hunk.filePath)}
-                                        disabled={!newCommentText.trim()}
-                                      >
-                                        Comment
-                                      </Button>
-                                    </div>
-                                  </div>
+                                  <AnchoredCommentComposer
+                                    className="absolute left-36 right-4 top-full z-20 mt-2"
+                                    value={newCommentText}
+                                    onChange={setNewCommentText}
+                                    onClose={() => setActiveComment(null)}
+                                    onSubmit={() => createThread(hunk.id, diffLine.offset, newCommentText, hunk.filePath)}
+                                    placeholder="Comment on this line..."
+                                  />
                                 )}
                               </div>
                             );
@@ -600,7 +615,7 @@ function AddedMarkdownHunk({
         const isActive = activeComment?.hunkId === hunk.id && activeComment.offset === diffLine.offset;
 
         return (
-          <div key={`${hunk.id}-${diffLine.offset}`} id={`line-${hunk.id}-${diffLine.offset}`}>
+          <div key={`${hunk.id}-${diffLine.offset}`} id={`line-${hunk.id}-${diffLine.offset}`} className="relative">
             <div
               className={`group flex border-b border-border/50 last:border-b-0 ${
                 hasThread ? "bg-accent/30" : "hover:bg-muted/30"
@@ -633,25 +648,14 @@ function AddedMarkdownHunk({
             ))}
 
             {isActive && (
-              <div className="border-t border-border bg-muted/20 px-4 py-3 ml-12">
-                <Textarea
-                  value={newCommentText}
-                  onChange={(e) => onNewCommentTextChange(e.target.value)}
-                  placeholder={`Comment on line ${diffLine.newNum ?? diffLine.offset}...`}
-                  className="mb-2 bg-background font-sans text-sm min-h-[60px]"
-                  autoFocus
-                />
-                <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" size="sm" onClick={onCancelComment}>Cancel</Button>
-                  <Button
-                    size="sm"
-                    onClick={() => onCreateThread(hunk.id, diffLine.offset, newCommentText, hunk.filePath)}
-                    disabled={!newCommentText.trim()}
-                  >
-                    Comment
-                  </Button>
-                </div>
-              </div>
+              <AnchoredCommentComposer
+                className="absolute left-16 right-4 top-full z-20 mt-2"
+                value={newCommentText}
+                onChange={onNewCommentTextChange}
+                onClose={onCancelComment}
+                onSubmit={() => onCreateThread(hunk.id, diffLine.offset, newCommentText, hunk.filePath)}
+                placeholder={`Comment on line ${diffLine.newNum ?? diffLine.offset}...`}
+              />
             )}
           </div>
         );
@@ -681,7 +685,7 @@ function AddedSourceHunk({
         const highlighted = highlightLine(diffLine.text, language);
 
         return (
-          <div key={`${hunk.id}-${diffLine.offset}`} id={`line-${hunk.id}-${diffLine.offset}`}>
+          <div key={`${hunk.id}-${diffLine.offset}`} id={`line-${hunk.id}-${diffLine.offset}`} className="relative">
             <div
               className={`group flex border-b border-border/30 last:border-b-0 ${
                 hasThread ? "ring-1 ring-inset ring-primary/20 bg-accent/10" : ""
@@ -715,25 +719,14 @@ function AddedSourceHunk({
             ))}
 
             {isActive && (
-              <div className="border-t border-border bg-muted/20 px-4 py-3 ml-12">
-                <Textarea
-                  value={newCommentText}
-                  onChange={(e) => onNewCommentTextChange(e.target.value)}
-                  placeholder={`Comment on line ${diffLine.newNum ?? diffLine.offset}...`}
-                  className="mb-2 bg-background font-sans text-sm min-h-[60px]"
-                  autoFocus
-                />
-                <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" size="sm" onClick={onCancelComment}>Cancel</Button>
-                  <Button
-                    size="sm"
-                    onClick={() => onCreateThread(hunk.id, diffLine.offset, newCommentText, hunk.filePath)}
-                    disabled={!newCommentText.trim()}
-                  >
-                    Comment
-                  </Button>
-                </div>
-              </div>
+              <AnchoredCommentComposer
+                className="absolute left-16 right-4 top-full z-20 mt-2"
+                value={newCommentText}
+                onChange={onNewCommentTextChange}
+                onClose={onCancelComment}
+                onSubmit={() => onCreateThread(hunk.id, diffLine.offset, newCommentText, hunk.filePath)}
+                placeholder={`Comment on line ${diffLine.newNum ?? diffLine.offset}...`}
+              />
             )}
           </div>
         );

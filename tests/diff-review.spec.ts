@@ -49,18 +49,6 @@ function submitDiffSession(
   });
 }
 
-function postDoneAfterDelay(
-  request: { post: (url: string, options?: { data?: unknown }) => Promise<unknown> },
-  sessionId: string,
-  delayMs: number = 100
-) {
-  return new Promise<void>((resolve, reject) => {
-    setTimeout(() => {
-      request.post(`/s/${sessionId}/done`).then(() => resolve(), reject);
-    }, delayMs);
-  });
-}
-
 test.describe("Diff Review", () => {
   test("starts a diff session and returns the next action endpoint", async ({ request }) => {
     const body = await startDiffSession(request);
@@ -129,7 +117,10 @@ test.describe("Diff Review", () => {
     expect(body.threads[0].messages[0].text).toBe("Looks good");
   });
 
-  test("standalone poll still works after a diff session is initialized", async ({ page, request }) => {
+  test("standalone poll is rejected while another diff waiter is already active", async ({
+    page,
+    request,
+  }) => {
     const { sessionId } = await startDiffSession(request);
     await page.goto(`/s/${sessionId}`);
 
@@ -141,14 +132,13 @@ test.describe("Diff Review", () => {
 
     await expect(page.getByText("const z = 4;")).toBeVisible();
 
-    const delayedDone = postDoneAfterDelay(request, sessionId, 250);
     const pollRes = await request.get(`/diff/${sessionId}/poll`, {
       headers: JSON_ACCEPT,
       timeout: 10000,
     });
-    await delayedDone;
-
-    expect((await pollRes.json()).status).toBe("done");
+    expect(pollRes.status()).toBe(409);
+    expect((await pollRes.json()).error).toContain("already waiting");
+    await request.post(`/s/${sessionId}/done`);
     await actionPromise;
   });
 

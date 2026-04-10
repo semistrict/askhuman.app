@@ -1,4 +1,5 @@
 import type { Tool } from "@/lib/tools/types";
+import { createEncryptedToolSession, parseMaybeEncryptedEnvelopeRequest, updateEncryptedToolSession } from "@/lib/e2e-session";
 import {
   buildDocFileFeedbackClipboardText,
   createFileSession,
@@ -8,7 +9,9 @@ import {
 } from "@/lib/file-review";
 import { SessionDO } from "@/worker/session";
 
-type ReviewActionInput = Awaited<ReturnType<typeof parseFileSubmissionRequest>>;
+type ReviewActionInput =
+  | Awaited<ReturnType<typeof parseFileSubmissionRequest>>
+  | { encryptedEnvelope: Awaited<ReturnType<typeof parseMaybeEncryptedEnvelopeRequest>> };
 
 export const reviewTool: Tool<ReviewActionInput> = {
   id: "review",
@@ -25,15 +28,15 @@ export const reviewTool: Tool<ReviewActionInput> = {
       openCommands: { chromeApp, fallback },
       message: [
         "Ask the user to open this review page.",
-        "Do not wait for confirmation after launching it.",
-        "Immediately submit the review payload in the next request.",
+        "Prefer end-to-end encryption if the user agrees and their browser allows localStorage.",
+        "Wait for the user to either copy end-to-end encryption instructions back to you or explicitly continue without encryption.",
         "Prefer Chrome app mode for a clean dedicated window:",
         `  ${chromeApp}`,
         "Fallback:",
         `  ${fallback}`,
       ].join("\n"),
       next: [
-        "Immediately after opening the page, submit the review payload:",
+        "If the user continues without encryption, submit the review payload normally:",
         "",
         `curl -s -X POST ${baseUrl}/review/${sessionId} \\`,
         `  -F "doc.md=<doc.md"`,
@@ -47,11 +50,25 @@ export const reviewTool: Tool<ReviewActionInput> = {
   },
 
   async parseActionRequest(request) {
+    const encryptedEnvelope = await parseMaybeEncryptedEnvelopeRequest(request);
+    if (encryptedEnvelope) {
+      return { encryptedEnvelope };
+    }
     const parsed = await parseFileSubmissionRequest(request);
     return { ...parsed, sessionId: null };
   },
 
   async applyAction({ sessionId, baseUrl, input }) {
+    if ("encryptedEnvelope" in input && input.encryptedEnvelope) {
+      const session = SessionDO.getInstance(sessionId);
+      const phase = await session.getSessionPhase();
+      if (phase === "awaiting_init") {
+        await createEncryptedToolSession(sessionId, "review", input.encryptedEnvelope, baseUrl);
+      } else {
+        await updateEncryptedToolSession(sessionId, "review", input.encryptedEnvelope, baseUrl);
+      }
+      return { sessionId, pollPrefix: "review" };
+    }
     const session = SessionDO.getInstance(sessionId);
     const phase = await session.getSessionPhase();
     if (phase === "awaiting_init") {
@@ -68,6 +85,10 @@ export const reviewTool: Tool<ReviewActionInput> = {
   },
 
   async buildPollContext(sessionId) {
+    const session = SessionDO.getInstance(sessionId);
+    if ((await session.getEncryptionMode()) === "e2e") {
+      return undefined;
+    }
     return fileReviewPollContext(sessionId);
   },
 };

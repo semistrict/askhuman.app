@@ -1,6 +1,14 @@
-export const ENCRYPTED_SHARE_VERSION = 2 as const;
-export const ENCRYPTED_SHARE_ALGORITHM = "rsa-oaep-256+aes-256-gcm" as const;
+import type { ToolId } from "@/lib/tools/types";
+
+export const ENCRYPTED_SHARE_VERSION = 3 as const;
+export const ENCRYPTED_SHARE_ALGORITHM = "rsa-oaep-256+aes-256-cbc+hmac-sha256" as const;
 export const ENCRYPTED_SHARE_KEYPAIR_STORAGE_KEY = "askhuman.encrypted-share.keypair";
+
+const AES_KEY_BYTES = 32;
+const HMAC_KEY_BYTES = 32;
+const WRAPPED_KEY_BYTES = AES_KEY_BYTES + HMAC_KEY_BYTES;
+const CBC_IV_BYTES = 16;
+const HMAC_BYTES = 32;
 
 const BASE64_URL_RE = /^[A-Za-z0-9_-]+$/;
 const KEY_ID_RE = /^[A-Za-z0-9_-]{8,}$/;
@@ -12,6 +20,7 @@ export type EncryptedSharePayload = {
   encryptedKey: string;
   iv: string;
   ciphertext: string;
+  mac: string;
 };
 
 export type StoredEncryptedShareKeyPair = {
@@ -27,6 +36,11 @@ export type StoredEncryptedShareKeyPair = {
 export type SharedEncryptedSharePublicKey = {
   recipientKeyId: string;
   publicKeySpki: string;
+};
+
+export type EncryptedShareKeyMismatch = {
+  recipientKeyId: string;
+  currentKeyId: string;
 };
 
 function resolveRecipientKeyId(
@@ -45,6 +59,28 @@ function normalizeBase64(base64Url: string): string {
 
 function toBufferSource(value: Uint8Array): ArrayBuffer {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+}
+
+function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const length = parts.reduce((sum, part) => sum + part.byteLength, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.byteLength;
+  }
+  return result;
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+  let diff = 0;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    diff |= left[index] ^ right[index];
+  }
+  return diff === 0;
 }
 
 export function decodeBase64Url(value: string): Uint8Array {
@@ -104,15 +140,19 @@ export function parseEncryptedSharePayload(value: unknown): EncryptedSharePayloa
   const encryptedKey = expectBase64UrlField(record.encryptedKey, "encryptedKey");
   const iv = expectBase64UrlField(record.iv, "iv");
   const ciphertext = expectBase64UrlField(record.ciphertext, "ciphertext");
+  const mac = expectBase64UrlField(record.mac, "mac");
 
-  if (decodeBase64Url(iv).byteLength !== 12) {
-    throw new Error("Encrypted share iv must decode to 12 bytes.");
+  if (decodeBase64Url(iv).byteLength !== CBC_IV_BYTES) {
+    throw new Error(`Encrypted share iv must decode to ${CBC_IV_BYTES} bytes.`);
   }
   if (decodeBase64Url(encryptedKey).byteLength === 0) {
     throw new Error("Encrypted share encryptedKey must not be empty.");
   }
   if (decodeBase64Url(ciphertext).byteLength === 0) {
     throw new Error("Encrypted share ciphertext must not be empty.");
+  }
+  if (decodeBase64Url(mac).byteLength !== HMAC_BYTES) {
+    throw new Error(`Encrypted share mac must decode to ${HMAC_BYTES} bytes.`);
   }
 
   return {
@@ -122,6 +162,7 @@ export function parseEncryptedSharePayload(value: unknown): EncryptedSharePayloa
     encryptedKey,
     iv,
     ciphertext,
+    mac,
   };
 }
 
@@ -219,6 +260,26 @@ async function importPublicKeySpki(publicKeySpki: string): Promise<CryptoKey> {
   );
 }
 
+async function importAesKey(rawKey: Uint8Array, usage: "encrypt" | "decrypt"): Promise<CryptoKey> {
+  return await globalThis.crypto.subtle.importKey(
+    "raw",
+    toBufferSource(rawKey),
+    { name: "AES-CBC" },
+    false,
+    [usage]
+  );
+}
+
+async function importHmacKey(rawKey: Uint8Array, usage: "sign" | "verify"): Promise<CryptoKey> {
+  return await globalThis.crypto.subtle.importKey(
+    "raw",
+    toBufferSource(rawKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    [usage]
+  );
+}
+
 export async function decryptEncryptedShare(
   payloadInput: EncryptedSharePayload,
   keyPair: Pick<StoredEncryptedShareKeyPair, "keyId" | "privateKeyJwk">
@@ -229,24 +290,55 @@ export async function decryptEncryptedShare(
   }
 
   const privateKey = await importStoredPrivateKey(keyPair.privateKeyJwk);
-  const rawContentKey = await globalThis.crypto.subtle.decrypt(
-    { name: "RSA-OAEP" },
-    privateKey,
-    toBufferSource(decodeBase64Url(payload.encryptedKey))
+  const rawWrappedKey = new Uint8Array(
+    await globalThis.crypto.subtle.decrypt(
+      { name: "RSA-OAEP" },
+      privateKey,
+      toBufferSource(decodeBase64Url(payload.encryptedKey))
+    )
   );
-  const contentKey = await globalThis.crypto.subtle.importKey(
-    "raw",
-    rawContentKey,
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"]
+  if (rawWrappedKey.byteLength !== WRAPPED_KEY_BYTES) {
+    throw new Error(`Encrypted share wrapped key must decode to ${WRAPPED_KEY_BYTES} bytes.`);
+  }
+
+  const encryptionKeyBytes = rawWrappedKey.slice(0, AES_KEY_BYTES);
+  const macKeyBytes = rawWrappedKey.slice(AES_KEY_BYTES);
+  const iv = decodeBase64Url(payload.iv);
+  const ciphertext = decodeBase64Url(payload.ciphertext);
+  const mac = decodeBase64Url(payload.mac);
+  const macKey = await importHmacKey(macKeyBytes, "sign");
+  const computedMac = new Uint8Array(
+    await globalThis.crypto.subtle.sign(
+      "HMAC",
+      macKey,
+      toBufferSource(concatBytes(iv, ciphertext))
+    )
   );
+  if (!equalBytes(computedMac, mac)) {
+    throw new Error("Encrypted share MAC verification failed.");
+  }
+
+  const contentKey = await importAesKey(encryptionKeyBytes, "decrypt");
   const plaintext = await globalThis.crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: toBufferSource(decodeBase64Url(payload.iv)) },
+    { name: "AES-CBC", iv: toBufferSource(iv) },
     contentKey,
-    toBufferSource(decodeBase64Url(payload.ciphertext))
+    toBufferSource(ciphertext)
   );
   return new TextDecoder().decode(plaintext);
+}
+
+export function detectEncryptedShareKeyMismatch(
+  payloadInput: EncryptedSharePayload,
+  keyPair: Pick<StoredEncryptedShareKeyPair, "keyId">
+): EncryptedShareKeyMismatch | null {
+  const payload = parseEncryptedSharePayload(payloadInput);
+  if (payload.recipientKeyId === keyPair.keyId) {
+    return null;
+  }
+  return {
+    recipientKeyId: payload.recipientKeyId,
+    currentKeyId: keyPair.keyId,
+  };
 }
 
 export async function createEncryptedSharePayload(
@@ -257,22 +349,25 @@ export async function createEncryptedSharePayload(
 ): Promise<EncryptedSharePayload> {
   const publicKey = await importPublicKeySpki(recipient.publicKeySpki);
   const recipientKeyId = resolveRecipientKeyId(recipient);
-  const contentKey = await globalThis.crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const encryptionKeyBytes = globalThis.crypto.getRandomValues(new Uint8Array(AES_KEY_BYTES));
+  const macKeyBytes = globalThis.crypto.getRandomValues(new Uint8Array(HMAC_KEY_BYTES));
+  const contentKey = await importAesKey(encryptionKeyBytes, "encrypt");
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(CBC_IV_BYTES));
   const ciphertext = await globalThis.crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: toBufferSource(iv) },
+    { name: "AES-CBC", iv: toBufferSource(iv) },
     contentKey,
     toBufferSource(new TextEncoder().encode(plaintext))
   );
-  const rawContentKey = await globalThis.crypto.subtle.exportKey("raw", contentKey);
+  const macKey = await importHmacKey(macKeyBytes, "sign");
+  const mac = await globalThis.crypto.subtle.sign(
+    "HMAC",
+    macKey,
+    toBufferSource(concatBytes(iv, new Uint8Array(ciphertext)))
+  );
   const encryptedKey = await globalThis.crypto.subtle.encrypt(
     { name: "RSA-OAEP" },
     publicKey,
-    rawContentKey
+    toBufferSource(concatBytes(encryptionKeyBytes, macKeyBytes))
   );
 
   return {
@@ -282,6 +377,7 @@ export async function createEncryptedSharePayload(
     encryptedKey: encodeBase64Url(encryptedKey),
     iv: encodeBase64Url(iv),
     ciphertext: encodeBase64Url(ciphertext),
+    mac: encodeBase64Url(mac),
   };
 }
 
@@ -294,13 +390,43 @@ export function buildEncryptedShareAgentInstructions(args: {
   return [
     "Use end-to-end encryption for my askhuman share session.",
     "",
+    "Prefer local openssl or libressl CLI for this encryption flow. Do not rely on Node.",
     `1. Fetch the recipient public key JSON from ${args.publicKeyUrl}`,
     "   It returns recipientKeyId and publicKeySpki. This short-lived URL expires after 24 hours.",
-    "2. Encrypt the markdown document with a fresh AES-256-GCM content key and a fresh 12-byte IV.",
-    "3. Encrypt that content key with RSA-OAEP-SHA256 using the fetched public key.",
-    `4. POST only ciphertext JSON to ${submitUrl} in this exact shape:`,
-    `{"version":2,"alg":"rsa-oaep-256+aes-256-gcm","recipientKeyId":"...","encryptedKey":"...","iv":"...","ciphertext":"..."}`,
+    "2. Base64url-decode publicKeySpki to DER and convert it into an RSA public key that openssl can read.",
+    "3. Generate a fresh 32-byte AES key, a fresh 32-byte HMAC key, and a fresh 16-byte IV.",
+    "4. Encrypt the markdown document bytes with AES-256-CBC using that AES key and IV.",
+    "5. Compute HMAC-SHA256 over iv || ciphertext using the HMAC key.",
+    "6. Concatenate aesKey || hmacKey and encrypt that 64-byte blob with RSA-OAEP-SHA256 using the fetched public key.",
+    "7. Base64url-encode encryptedKey, iv, ciphertext, and mac.",
+    `8. POST only ciphertext JSON to ${submitUrl} in this exact shape:`,
+    `{"version":3,"alg":"rsa-oaep-256+aes-256-cbc+hmac-sha256","recipientKeyId":"...","encryptedKey":"...","iv":"...","ciphertext":"...","mac":"..."}`,
     "",
     "Never send plaintext or any private key material to the server.",
+  ].join("\n");
+}
+
+export function buildEncryptedSessionErrorInstructions(args: {
+  toolId: ToolId;
+  sessionId: string;
+  message: string;
+  currentKeyId?: string | null;
+}): string {
+  const toolLabel =
+    args.toolId === "share"
+      ? "share"
+      : args.toolId === "present"
+        ? "present"
+        : args.toolId === "playground"
+          ? "playground"
+          : args.toolId === "diff"
+            ? "diff"
+            : "review";
+  return [
+    `The encrypted ${toolLabel} session failed to decrypt in my browser.`,
+    `Session ID: ${args.sessionId}`,
+    `Error: ${args.message}`,
+    ...(args.currentKeyId ? [`Current browser key ID: ${args.currentKeyId}`] : []),
+    "Please rebuild and resubmit the encrypted envelope for this session.",
   ].join("\n");
 }

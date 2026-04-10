@@ -32,16 +32,8 @@ export function ThreadView({
         )}
         <div className="flex-1 space-y-1">
           {thread.selection_text && (
-            <div className="rounded border border-border/60 bg-background/70 px-2 py-1 text-xs font-sans text-foreground/80">
-              <div className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-                selection
-              </div>
-              <div>{thread.selection_text}</div>
-              {thread.selection_context && (
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {thread.selection_context}
-                </div>
-              )}
+            <div className="rounded border border-border/60 bg-background/70 px-2 py-1 text-xs font-sans italic text-foreground/80">
+              “{thread.selection_text}”
             </div>
           )}
           <p className="text-sm font-sans">

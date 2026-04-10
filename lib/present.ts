@@ -23,6 +23,7 @@ export async function createPresentationSession(
 
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("present");
+  await session.setEncryptionMode("plain");
   await session.setContent(markdown);
 
   return {
@@ -50,6 +51,7 @@ export async function updatePresentationSession(
   }
 
   await session.setContentType("present");
+  await session.setEncryptionMode("plain");
   await session.markAllThreadsOutdated();
   await session.setContent(markdown);
   await session.broadcastViewUpdate();

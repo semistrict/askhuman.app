@@ -27,7 +27,7 @@ curl https://askhuman.app
 |-----------|----------|-----|
 | REST bootstrap | `https://askhuman.app/{review,diff,present,playground,share}` | create a tool-specific session |
 | REST action | `https://askhuman.app/{review,diff,present,playground,share}/{id}` | submit or update tool content inside a session |
-| REST poll | `https://askhuman.app/{review,diff,present,playground,share}/{id}/poll` | optional standalone poll |
+| REST poll | `https://askhuman.app/{review,diff,present,playground,share}/{id}/poll` | optional standalone poll when no other agent waiter is active |
 | Browser | `https://askhuman.app/s/{id}` | Human reviewer UI |
 
 Compatibility aliases:
@@ -35,9 +35,11 @@ Compatibility aliases:
 - `/plan` still works for single markdown-file review sessions
 - `/remark` still works for presentations
 
-## Encrypted Share
+## End-to-End Encryption
 
-`/share` is an end-to-end encrypted document handoff: the reviewer browser stores a private key in localStorage, uploads only a 24-hour public-key reference, and the agent uploads only ciphertext JSON. The server never receives the private key or plaintext.
+`/review`, `/diff`, `/present`, and `/playground` now support optional end-to-end encryption. When the reviewer opens the session page, they can either enable localStorage-backed browser keys and copy encrypted submission instructions back to the agent, or explicitly continue with the normal plaintext flow.
+
+`/share` remains a dedicated end-to-end encrypted document handoff: the reviewer browser stores a private key in localStorage, uploads only a 24-hour public-key reference, and the agent uploads only ciphertext JSON. The server never receives the private key or plaintext.
 
 ## Development
 

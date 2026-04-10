@@ -5,6 +5,7 @@ import { FileReviewClient } from "./file-review-client";
 import { PlaygroundClient } from "./playground-client";
 import { PresentClient } from "./remark-client";
 import { EncryptedShareClient } from "./encrypted-share-client";
+import { EncryptedToolClient } from "./encrypted-tool-client";
 import { SessionAwaitingInit } from "@/components/session-awaiting-init";
 
 function titleForTool(toolId: string | null) {
@@ -55,6 +56,21 @@ export default async function SessionPage({
 
   const contentType = await session.getContentType();
   const isDone = await session.isDone();
+  const encryptionMode = await session.getEncryptionMode();
+
+  if (encryptionMode === "e2e" && toolId && toolId !== "share") {
+    const data = await session.getContent();
+    const threads: Thread[] = await session.getThreads();
+    return (
+      <EncryptedToolClient
+        sessionId={id}
+        toolId={toolId}
+        payload={data?.content ?? ""}
+        initialThreads={threads}
+        isDone={isDone}
+      />
+    );
+  }
 
   if (contentType === "diff") {
     const description = await session.getDescription();

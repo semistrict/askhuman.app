@@ -87,6 +87,10 @@ function createPublicHunkId(hunk: StoredHunkInput): string {
   return createHash("md5").update(payload).digest("base64url");
 }
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 type Waiter = {
   resolve: (value: { threads: Thread[]; done?: boolean }) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -115,7 +119,14 @@ type DebugEvalWaiter = {
 };
 
 type TabAttachment = {
+  kind: "tab";
   tabId: string;
+};
+
+type KvStreamAttachment = {
+  kind: "kv_stream";
+  prefixes: string[];
+  includeValues: boolean;
 };
 
 type ConnectedTab = {
@@ -140,6 +151,38 @@ type ConnectedAgent = {
   lastSeenAt: number;
   connected: boolean;
 };
+
+type KvStoredEntry = {
+  key: string;
+  value: unknown;
+  version: number;
+  updatedAt: number;
+};
+
+type KvTransactionCheckOp = {
+  op: "check";
+  key: string;
+  exists?: boolean;
+  value?: unknown;
+};
+
+type KvTransactionPutOp = {
+  op: "put";
+  key: string;
+  value: unknown;
+};
+
+type KvTransactionDeleteOp = {
+  op: "delete";
+  key: string;
+};
+
+export type KvTransactionOp = KvTransactionCheckOp | KvTransactionPutOp | KvTransactionDeleteOp;
+
+export type KvTransactionResult =
+  | { ok: true; commitVersion: number; changes: Array<{ op: "put" | "delete"; key: string; value?: unknown }> }
+  | { ok: false; reason: "version_conflict"; currentVersion: number }
+  | { ok: false; reason: "check_failed"; key: string; message: string };
 
 type TabHelloMessage = {
   type: "tab_hello";
@@ -233,51 +276,63 @@ export class SessionDO extends DurableObject {
           last_seen_at INTEGER NOT NULL,
           connected INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS kv_store (
+          key TEXT PRIMARY KEY,
+          value_json TEXT NOT NULL,
+          updated_version INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS kv_commits (
+          version INTEGER PRIMARY KEY AUTOINCREMENT,
+          idempotency_key TEXT UNIQUE,
+          changes_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
       `);
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN hunk_id TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE threads ADD COLUMN hunk_id skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE hunks ADD COLUMN public_id TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE hunks ADD COLUMN public_id skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE views ADD COLUMN sections_json TEXT NOT NULL DEFAULT '[]'");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE views ADD COLUMN sections_json skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN file_path TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE threads ADD COLUMN file_path skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN outdated INTEGER NOT NULL DEFAULT 0");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE threads ADD COLUMN outdated skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN location_label TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE threads ADD COLUMN location_label skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN selection_text TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE threads ADD COLUMN selection_text skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE threads ADD COLUMN selection_context TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE threads ADD COLUMN selection_context skipped", error);
       }
       try {
         ctx.storage.sql.exec("ALTER TABLE tabs ADD COLUMN reviewer_name TEXT");
-      } catch {
-        // Column already exists
+      } catch (error) {
+        console.warn("ALTER TABLE tabs ADD COLUMN reviewer_name skipped", error);
       }
       ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS text_state (
@@ -407,8 +462,26 @@ export class SessionDO extends DurableObject {
     };
     const value = attachable.deserializeAttachment?.();
     if (!value || typeof value !== "object") return null;
-    const maybe = value as { tabId?: unknown };
-    return typeof maybe.tabId === "string" ? { tabId: maybe.tabId } : null;
+    const maybe = value as { kind?: unknown; tabId?: unknown };
+    if (maybe.kind !== "tab") return null;
+    return typeof maybe.tabId === "string" ? { kind: "tab", tabId: maybe.tabId } : null;
+  }
+
+  private getKvStreamAttachment(ws: WebSocket): KvStreamAttachment | null {
+    const attachable = ws as WebSocket & {
+      deserializeAttachment?: () => unknown;
+    };
+    const value = attachable.deserializeAttachment?.();
+    if (!value || typeof value !== "object") return null;
+    const maybe = value as { kind?: unknown; prefixes?: unknown; includeValues?: unknown };
+    if (maybe.kind !== "kv_stream" || !Array.isArray(maybe.prefixes)) return null;
+    const prefixes = maybe.prefixes.filter((prefix): prefix is string => typeof prefix === "string");
+    if (prefixes.length !== maybe.prefixes.length) return null;
+    return {
+      kind: "kv_stream",
+      prefixes,
+      includeValues: maybe.includeValues === true,
+    };
   }
 
   private async upsertTabRecord(
@@ -664,6 +737,7 @@ export class SessionDO extends DurableObject {
           })
         );
       } catch (error) {
+        console.error(`Failed to send debug_eval request to tab ${tabId}`, error);
         clearTimeout(timer);
         this.debugEvalWaiters.delete(requestId);
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -764,6 +838,23 @@ export class SessionDO extends DurableObject {
     return "plan";
   }
 
+  async setEncryptionMode(mode: "plain" | "e2e"): Promise<void> {
+    await this.touchSession();
+    const value = mode === "e2e" ? 1 : 0;
+    this.ctx.storage.sql.exec(
+      "INSERT INTO state (key, value) VALUES ('encryption_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      value
+    );
+  }
+
+  async getEncryptionMode(): Promise<"plain" | "e2e"> {
+    const rows = this.ctx.storage.sql.exec<{ value: number }>(
+      "SELECT value FROM state WHERE key = 'encryption_mode'"
+    ).toArray();
+    if (rows.length === 0) return "plain";
+    return rows[0].value === 1 ? "e2e" : "plain";
+  }
+
   async setReviewMode(mode: "doc" | "files"): Promise<void> {
     await this.touchSession();
     const value = mode === "doc" ? 1 : 0;
@@ -779,6 +870,183 @@ export class SessionDO extends DurableObject {
     ).toArray();
     if (rows.length === 0) return "files";
     return rows[0].value === 1 ? "doc" : "files";
+  }
+
+  async getKvVersion(): Promise<number> {
+    const row = this.ctx.storage.sql.exec<{ version: number }>(
+      "SELECT COALESCE(MAX(version), 0) as version FROM kv_commits"
+    ).one();
+    return row?.version ?? 0;
+  }
+
+  async getKvEntry(key: string): Promise<KvStoredEntry | null> {
+    const row = this.ctx.storage.sql.exec<{
+      key: string;
+      value_json: string;
+      updated_version: number;
+      updated_at: number;
+    }>(
+      "SELECT key, value_json, updated_version, updated_at FROM kv_store WHERE key = ? LIMIT 1",
+      key
+    ).toArray()[0];
+    if (!row) return null;
+    return {
+      key: row.key,
+      value: JSON.parse(row.value_json),
+      version: row.updated_version,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async scanKv(prefix: string, after: string | null, limit: number): Promise<KvStoredEntry[]> {
+    const sql = this.ctx.storage.sql;
+    const normalizedLimit = Math.max(1, Math.min(limit, 500));
+    const params: unknown[] = [`${escapeSqlLikePattern(prefix)}%`];
+    let query = `
+      SELECT key, value_json, updated_version, updated_at
+      FROM kv_store
+      WHERE key LIKE ? ESCAPE '\\'
+    `;
+    if (after) {
+      query += " AND key > ?";
+      params.push(after);
+    }
+    query += " ORDER BY key LIMIT ?";
+    params.push(normalizedLimit);
+    const rows = sql.exec<{
+      key: string;
+      value_json: string;
+      updated_version: number;
+      updated_at: number;
+    }>(query, ...params).toArray();
+    return rows.map((row) => ({
+      key: row.key,
+      value: JSON.parse(row.value_json),
+      version: row.updated_version,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  async executeKvTransaction(args: {
+    baseVersion?: number | null;
+    idempotencyKey?: string | null;
+    ops: KvTransactionOp[];
+  }): Promise<KvTransactionResult> {
+    await this.touchSession();
+    const sql = this.ctx.storage.sql;
+    if (args.idempotencyKey) {
+      const existing = sql.exec<{ version: number; changes_json: string }>(
+        "SELECT version, changes_json FROM kv_commits WHERE idempotency_key = ? LIMIT 1",
+        args.idempotencyKey
+      ).toArray()[0];
+      if (existing) {
+        return {
+          ok: true,
+          commitVersion: existing.version,
+          changes: JSON.parse(existing.changes_json) as Array<{ op: "put" | "delete"; key: string; value?: unknown }>,
+        };
+      }
+    }
+
+    const currentVersion = await this.getKvVersion();
+    if (args.baseVersion != null && args.baseVersion !== currentVersion) {
+      return { ok: false, reason: "version_conflict", currentVersion };
+    }
+
+    for (const op of args.ops) {
+      if (!op.key || /\s/.test(op.key)) {
+        throw new Error(`Invalid kv key: ${op.key}`);
+      }
+      if (op.op === "check") {
+        const existing = await this.getKvEntry(op.key);
+        if (typeof op.exists === "boolean" && op.exists !== (existing != null)) {
+          return {
+            ok: false,
+            reason: "check_failed",
+            key: op.key,
+            message: op.exists
+              ? `Expected ${op.key} to exist.`
+              : `Expected ${op.key} to be absent.`,
+          };
+        }
+        if ("value" in op) {
+          const expected = JSON.stringify(op.value ?? null);
+          const actual = existing ? JSON.stringify(existing.value) : null;
+          if (actual !== expected) {
+            return {
+              ok: false,
+              reason: "check_failed",
+              key: op.key,
+              message: `Expected ${op.key} to match the requested value.`,
+            };
+          }
+        }
+      }
+    }
+
+    const changeSet = args.ops.filter(
+      (op): op is KvTransactionPutOp | KvTransactionDeleteOp => op.op === "put" || op.op === "delete"
+    );
+    if (changeSet.length === 0) {
+      return { ok: true, commitVersion: currentVersion, changes: [] };
+    }
+
+    const now = Date.now();
+    try {
+      const committed = this.ctx.storage.transactionSync(() => {
+        sql.exec(
+          "INSERT INTO kv_commits (idempotency_key, changes_json, created_at) VALUES (?, ?, ?)",
+          args.idempotencyKey ?? null,
+          JSON.stringify(
+            changeSet.map((op) =>
+              op.op === "put"
+                ? { op: "put" as const, key: op.key, value: op.value }
+                : { op: "delete" as const, key: op.key }
+            )
+          ),
+          now
+        );
+        const commitVersion = sql.exec<{ version: number }>(
+          "SELECT last_insert_rowid() as version"
+        ).one().version;
+
+        for (const op of changeSet) {
+          if (op.op === "put") {
+            sql.exec(
+              `
+                INSERT INTO kv_store (key, value_json, updated_version, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                  value_json = excluded.value_json,
+                  updated_version = excluded.updated_version,
+                  updated_at = excluded.updated_at
+              `,
+              op.key,
+              JSON.stringify(op.value),
+              commitVersion,
+              now
+            );
+          } else {
+            sql.exec("DELETE FROM kv_store WHERE key = ?", op.key);
+          }
+        }
+
+        return {
+          commitVersion,
+          changes: changeSet.map((op) =>
+            op.op === "put"
+              ? { op: "put" as const, key: op.key, value: op.value }
+              : { op: "delete" as const, key: op.key }
+          ),
+        };
+      });
+
+      this.broadcastKvCommit(committed.commitVersion, committed.changes);
+      return { ok: true, commitVersion: committed.commitVersion, changes: committed.changes };
+    } catch (error) {
+      console.error("Failed to execute kv transaction", error);
+      throw error;
+    }
   }
 
   async setResult(text: string): Promise<void> {
@@ -862,6 +1130,15 @@ export class SessionDO extends DurableObject {
       "SELECT path, content FROM files ORDER BY id"
     ).toArray();
     return rows;
+  }
+
+  async clearStructuredContent(): Promise<void> {
+    await this.touchSession();
+    const sql = this.ctx.storage.sql;
+    sql.exec("DELETE FROM plan");
+    sql.exec("DELETE FROM files");
+    sql.exec("DELETE FROM hunks");
+    sql.exec("DELETE FROM text_state");
   }
 
   async markOutdatedFileThreads(currentPaths: Set<string>): Promise<void> {
@@ -1271,10 +1548,41 @@ export class SessionDO extends DurableObject {
   private broadcast(data: unknown) {
     const json = JSON.stringify(data);
     for (const ws of this.ctx.getWebSockets()) {
+      if (this.getKvStreamAttachment(ws)) continue;
       try {
         ws.send(json);
-      } catch {
-        // Client disconnected
+      } catch (error) {
+        console.error("Failed to broadcast websocket message", error);
+      }
+    }
+  }
+
+  private broadcastKvCommit(
+    commitVersion: number,
+    changes: Array<{ op: "put" | "delete"; key: string; value?: unknown }>
+  ) {
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = this.getKvStreamAttachment(ws);
+      if (!attachment) continue;
+      const matched = changes.filter((change) =>
+        attachment.prefixes.length === 0
+          ? true
+          : attachment.prefixes.some((prefix) => change.key.startsWith(prefix))
+      );
+      if (matched.length === 0) continue;
+      const payload = {
+        type: "kv_commit",
+        commitVersion,
+        changes: matched.map((change) =>
+          attachment.includeValues || change.op === "delete"
+            ? change
+            : { op: change.op, key: change.key }
+        ),
+      };
+      try {
+        ws.send(JSON.stringify(payload));
+      } catch (error) {
+        console.error("Failed to broadcast kv commit", error);
       }
     }
   }
@@ -1285,8 +1593,10 @@ export class SessionDO extends DurableObject {
       return new Response("Expected WebSocket", { status: 426 });
     }
 
-    const sessionMatch = new URL(request.url).pathname.match(/^\/s\/([^/]+)\/ws$/);
-    const sessionId = sessionMatch?.[1];
+    const url = new URL(request.url);
+    const sessionMatch = url.pathname.match(/^\/s\/([^/]+)\/ws$/);
+    const kvStreamMatch = url.pathname.match(/^\/s\/([^/]+)\/kv\/ws$/);
+    const sessionId = sessionMatch?.[1] ?? kvStreamMatch?.[1];
     if (!sessionId) {
       return new Response("Missing session id", { status: 400 });
     }
@@ -1295,13 +1605,36 @@ export class SessionDO extends DurableObject {
     await this.touchSession();
 
     const pair = new WebSocketPair();
-    const tabId = createCompactId();
-    await this.markHumanConnected();
     this.ctx.acceptWebSocket(pair[1]);
     const serverSocket = pair[1] as WebSocket & {
       serializeAttachment?: (value: unknown) => void;
     };
-    serverSocket.serializeAttachment?.({ tabId } satisfies TabAttachment);
+    if (kvStreamMatch) {
+      const prefixes = url.searchParams.getAll("prefix");
+      const includeValues = url.searchParams.get("values") === "1";
+      serverSocket.serializeAttachment?.({
+        kind: "kv_stream",
+        prefixes,
+        includeValues,
+      } satisfies KvStreamAttachment);
+      try {
+        serverSocket.send(
+          JSON.stringify({
+            type: "kv_subscribed",
+            currentVersion: await this.getKvVersion(),
+            prefixes,
+            includeValues,
+          })
+        );
+      } catch (error) {
+        console.error("Failed to send kv subscription acknowledgement", error);
+      }
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    const tabId = createCompactId();
+    await this.markHumanConnected();
+    serverSocket.serializeAttachment?.({ kind: "tab", tabId } satisfies TabAttachment);
     await this.upsertTabRecord(tabId, sessionId, {
       url: `/s/${sessionId}`,
       userAgent: request.headers.get("user-agent"),
@@ -1309,8 +1642,8 @@ export class SessionDO extends DurableObject {
     });
     try {
       serverSocket.send(JSON.stringify({ type: "tab_ready", tabId }));
-    } catch {
-      // Ignore eager send failures; the tab will still be tracked and updated by hello.
+    } catch (error) {
+      console.error("Failed to send tab_ready websocket message", error);
     }
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -1321,7 +1654,8 @@ export class SessionDO extends DurableObject {
     let data: TabHelloMessage | DebugEvalResultMessage;
     try {
       data = JSON.parse(message) as TabHelloMessage | DebugEvalResultMessage;
-    } catch {
+    } catch (error) {
+      console.error("Failed to parse websocket message", error);
       return;
     }
 
@@ -1341,8 +1675,8 @@ export class SessionDO extends DurableObject {
       if (data.pageState === "awaiting_init" && (await this.getSessionPhase()) === "active") {
         try {
           ws.send(JSON.stringify({ type: "view" }));
-        } catch {
-          // ignore
+        } catch (error) {
+          console.error("Failed to send websocket view message", error);
         }
       }
       return;
@@ -1369,7 +1703,9 @@ export class SessionDO extends DurableObject {
         if (waiter.tabId !== attachment.tabId) continue;
         clearTimeout(waiter.timer);
         this.debugEvalWaiters.delete(requestId);
-        waiter.reject(new Error(`Tab ${attachment.tabId} disconnected before returning a debug result`));
+        const error = new Error(`Tab ${attachment.tabId} disconnected before returning a debug result`);
+        console.error(error.message, error);
+        waiter.reject(error);
       }
     }
   }

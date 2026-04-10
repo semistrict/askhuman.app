@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { SessionChrome } from "@/components/session-chrome";
 import {
   buildEncryptedShareAgentInstructions,
+  buildEncryptedSessionErrorInstructions,
+  detectEncryptedShareKeyMismatch,
   decryptEncryptedShare,
   generateEncryptedShareKeyPair,
   parseEncryptedSharePayload,
@@ -25,6 +27,7 @@ import {
 type LoadState =
   | { kind: "loading" }
   | { kind: "needs_key" }
+  | { kind: "mismatch"; recipientKeyId: string; currentKeyId: string }
   | { kind: "error"; message: string }
   | { kind: "ready"; markdown: string };
 
@@ -47,6 +50,7 @@ export function EncryptedShareClient({
   const [keyState, setKeyState] = useState<KeyState>({ kind: "loading" });
   const [isDone, setIsDone] = useState(initialIsDone);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [errorCopyStatus, setErrorCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
 
   useEffect(() => {
     try {
@@ -57,6 +61,7 @@ export function EncryptedShareClient({
         setKeyState({ kind: "missing" });
       }
     } catch (error) {
+      console.error("Failed to read encrypted share keypair from localStorage", error);
       setKeyState({
         kind: "error",
         message:
@@ -90,11 +95,19 @@ export function EncryptedShareClient({
 
       try {
         const parsed = parseEncryptedSharePayload(JSON.parse(payload));
+        const mismatch = detectEncryptedShareKeyMismatch(parsed, keyState.keyPair);
+        if (mismatch) {
+          if (!cancelled) {
+            setState({ kind: "mismatch", ...mismatch });
+          }
+          return;
+        }
         const markdown = await decryptEncryptedShare(parsed, keyState.keyPair);
         if (!cancelled) {
           setState({ kind: "ready", markdown });
         }
       } catch (error) {
+        console.error("Failed to load encrypted share payload", error);
         if (!cancelled) {
           setState({
             kind: "error",
@@ -141,7 +154,8 @@ export function EncryptedShareClient({
       );
       setCopyStatus("copied");
       window.setTimeout(() => setCopyStatus("idle"), 1500);
-    } catch {
+    } catch (error) {
+      console.error("Failed to copy encrypted share instructions", error);
       setCopyStatus("failed");
     }
   }
@@ -153,6 +167,7 @@ export function EncryptedShareClient({
       setKeyState({ kind: "ready", keyPair });
       await copyAgentInstructions(keyPair);
     } catch (error) {
+      console.error("Failed to enable encrypted share keypair", error);
       setKeyState({
         kind: "error",
         message:
@@ -160,6 +175,24 @@ export function EncryptedShareClient({
             ? error.message
             : "Failed to generate and store the encrypted share keypair.",
       });
+    }
+  }
+
+  async function copyErrorForAgent(message: string) {
+    try {
+      await navigator.clipboard.writeText(
+        buildEncryptedSessionErrorInstructions({
+          toolId: "share",
+          sessionId,
+          message,
+          currentKeyId: keyState.kind === "ready" ? keyState.keyPair.keyId : null,
+        })
+      );
+      setErrorCopyStatus("copied");
+      window.setTimeout(() => setErrorCopyStatus("idle"), 1500);
+    } catch (error) {
+      console.error("Failed to copy encrypted-share error for agent", error);
+      setErrorCopyStatus("failed");
     }
   }
 
@@ -268,6 +301,46 @@ export function EncryptedShareClient({
           <section className="rounded-3xl border border-red-500/30 bg-red-500/5 px-8 py-16 text-center shadow-[0_24px_80px_-32px_rgba(0,0,0,0.55)]">
             <h3 className="text-lg font-semibold">Unable to decrypt document</h3>
             <p className="mt-2 text-sm text-muted-foreground">{state.message}</p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <Button variant="outline" onClick={() => void copyErrorForAgent(state.message)}>
+                Copy Error for Agent
+              </Button>
+            </div>
+            {errorCopyStatus === "copied" && (
+              <p className="mt-4 text-sm text-emerald-300">Error details copied for the agent.</p>
+            )}
+            {errorCopyStatus === "failed" && (
+              <p className="mt-4 text-sm text-amber-300">Unable to copy error details. Try again.</p>
+            )}
+          </section>
+        )}
+
+        {state.kind === "mismatch" && (
+          <section className="rounded-3xl border border-amber-500/30 bg-amber-500/5 px-8 py-16 text-center shadow-[0_24px_80px_-32px_rgba(0,0,0,0.55)]">
+            <h3 className="text-lg font-semibold">Keys out of sync</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The agent encrypted this document for a different local key than the one currently
+              stored in this browser.
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Agent used <code>{state.recipientKeyId}</code>. This browser currently has{" "}
+              <code>{state.currentKeyId}</code>.
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              {keyState.kind === "ready" && (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    await copyAgentInstructions(keyState.keyPair);
+                  }}
+                >
+                  Copy Fresh Instructions
+                </Button>
+              )}
+            </div>
+            <p className="mt-4 text-sm text-muted-foreground">
+              Copy fresh instructions for the agent, then ask it to retry with your current key.
+            </p>
           </section>
         )}
 

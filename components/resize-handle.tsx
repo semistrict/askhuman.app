@@ -9,12 +9,16 @@ export function usePersistedWidth(
   const [width, setWidth] = useState(defaultWidth);
 
   useEffect(() => {
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      const parsed = parseInt(stored, 10);
-      if (!isNaN(parsed) && parsed > 50) {
-        setWidth(parsed);
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!isNaN(parsed) && parsed > 50) {
+          setWidth(parsed);
+        }
       }
+    } catch (error) {
+      console.error("Failed to read persisted resize width", error);
     }
   }, [key]);
 
@@ -22,7 +26,11 @@ export function usePersistedWidth(
     (updater: number | ((prev: number) => number)) => {
       setWidth((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
-        localStorage.setItem(key, String(next));
+        try {
+          localStorage.setItem(key, String(next));
+        } catch (error) {
+          console.error("Failed to persist resize width", error);
+        }
         return next;
       });
     },

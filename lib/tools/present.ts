@@ -1,8 +1,11 @@
 import { parsePresentationRequest, createPresentationSession, updatePresentationSession } from "@/lib/present";
+import { createEncryptedToolSession, parseMaybeEncryptedEnvelopeRequest, updateEncryptedToolSession } from "@/lib/e2e-session";
 import { SessionDO } from "@/worker/session";
 import type { Tool } from "@/lib/tools/types";
 
-type PresentActionInput = Awaited<ReturnType<typeof parsePresentationRequest>>;
+type PresentActionInput =
+  | Awaited<ReturnType<typeof parsePresentationRequest>>
+  | { encryptedEnvelope: Awaited<ReturnType<typeof parseMaybeEncryptedEnvelopeRequest>> };
 
 export const presentTool: Tool<PresentActionInput> = {
   id: "present",
@@ -19,15 +22,15 @@ export const presentTool: Tool<PresentActionInput> = {
       openCommands: { chromeApp, fallback },
       message: [
         "Ask the user to open this presentation review page.",
-        "Do not wait for confirmation after launching it.",
-        "Immediately submit the presentation payload in the next request.",
+        "Prefer end-to-end encryption if the user agrees and their browser allows localStorage.",
+        "Wait for the user to either copy end-to-end encryption instructions back to you or explicitly continue without encryption.",
         "Prefer Chrome app mode for a clean dedicated window:",
         `  ${chromeApp}`,
         "Fallback:",
         `  ${fallback}`,
       ].join("\n"),
       next: [
-        "Immediately after opening the page, submit the presentation payload:",
+        "If the user continues without encryption, submit the presentation payload normally:",
         "",
         `curl -s -X POST ${baseUrl}/present/${sessionId} \\`,
         `  -F "markdown=<slides.md"`,
@@ -36,11 +39,25 @@ export const presentTool: Tool<PresentActionInput> = {
   },
 
   async parseActionRequest(request) {
+    const encryptedEnvelope = await parseMaybeEncryptedEnvelopeRequest(request);
+    if (encryptedEnvelope) {
+      return { encryptedEnvelope };
+    }
     const parsed = await parsePresentationRequest(request);
     return { ...parsed, sessionId: null };
   },
 
   async applyAction({ sessionId, baseUrl, input }) {
+    if ("encryptedEnvelope" in input && input.encryptedEnvelope) {
+      const session = SessionDO.getInstance(sessionId);
+      const phase = await session.getSessionPhase();
+      if (phase === "awaiting_init") {
+        await createEncryptedToolSession(sessionId, "present", input.encryptedEnvelope, baseUrl);
+      } else {
+        await updateEncryptedToolSession(sessionId, "present", input.encryptedEnvelope, baseUrl);
+      }
+      return { sessionId, pollPrefix: "present" };
+    }
     const session = SessionDO.getInstance(sessionId);
     const phase = await session.getSessionPhase();
     if (phase === "awaiting_init") {

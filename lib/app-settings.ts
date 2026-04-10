@@ -62,20 +62,39 @@ export function parseAppSettings(raw: string | null | undefined): AppSettings {
       generatedUserName:
         typeof parsed?.generatedUserName === "string" ? parsed.generatedUserName : "",
     };
-  } catch {
+  } catch (error) {
+    console.error("Failed to parse app settings", error);
     return DEFAULT_APP_SETTINGS;
   }
 }
 
 export function readAppSettings(storage: Pick<Storage, "getItem">): AppSettings {
-  return parseAppSettings(storage.getItem(APP_SETTINGS_STORAGE_KEY));
+  try {
+    return parseAppSettings(storage.getItem(APP_SETTINGS_STORAGE_KEY));
+  } catch (error) {
+    console.error("Failed to read app settings from storage", error);
+    return DEFAULT_APP_SETTINGS;
+  }
 }
 
 export function writeAppSettings(
   storage: Pick<Storage, "setItem">,
   settings: AppSettings
 ): void {
-  storage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  try {
+    storage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch (error) {
+    console.error("Failed to write app settings to storage", error);
+  }
+}
+
+export function getBrowserStorage(target: Window = window): Storage | null {
+  try {
+    return target.localStorage;
+  } catch (error) {
+    console.error("Failed to access browser localStorage", error);
+    return null;
+  }
 }
 
 export function openAppSettings(target: Window = window): void {

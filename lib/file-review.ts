@@ -50,6 +50,7 @@ export async function createFileSession(
 
   const session = SessionDO.getInstance(sessionId);
   await session.setContentType("files");
+  await session.setEncryptionMode("plain");
   const isDocReview = isDocReviewFiles(files);
   await session.setReviewMode(isDocReview ? "doc" : "files");
   if (isDocReview) {
@@ -91,6 +92,7 @@ export async function updateFileSession(
     await session.resetDone();
   }
 
+  await session.setEncryptionMode("plain");
   await session.setReviewMode(isDocReview ? "doc" : "files");
   if (isDocReview) {
     await session.setDocReviewState("ready");
