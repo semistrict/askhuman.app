@@ -1,21 +1,21 @@
 file_doc_created: |
   Review session created for markdown file {FILE_PATH}.
 
-  Open the review page for the user. Try Chrome app mode for a
-  clean window:
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
-  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
-  Or just show the URL to the user (they cannot see this text).
+  Next steps:
 
-  Submit the markdown to this session:
+  1. Open {BASE_URL}/s/{SESSION_ID} for the user. Prefer Chrome app mode:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+     Fallback: open "{BASE_URL}/s/{SESSION_ID}"
+
+  2. POST the markdown file:
     curl -s -X POST "{BASE_URL}/review/{SESSION_ID}" \
       -F "{FILE_PATH}=<{FILE_PATH}"
 
-  That call waits for the reviewer and returns when they click Request Revision.
-  Standalone poll is also available:
+  3. That POST waits until the reviewer clicks Request Revision.
+     Optional separate poll:
     curl -s "{BASE_URL}/review/{SESSION_ID}/poll"
 
-  To include a general response for the reviewer on update:
+  4. To send a general response with an updated file:
     curl -s -X POST "{BASE_URL}/review/{SESSION_ID}" \
       -F "{FILE_PATH}=<{FILE_PATH}" \
       -F 'response=Addressed the requested revisions.'
@@ -23,22 +23,22 @@ file_doc_created: |
 file_created: |
   Review session created with {FILE_COUNT} file(s).
 
-  Open the review page for the user. Try Chrome app mode for a
-  clean window:
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
-  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
-  Or just show the URL to the user (they cannot see this text).
+  Next steps:
 
-  Submit the files to this session:
+  1. Open {BASE_URL}/s/{SESSION_ID} for the user. Prefer Chrome app mode:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+     Fallback: open "{BASE_URL}/s/{SESSION_ID}"
+
+  2. POST the files:
     curl -s -X POST "{BASE_URL}/review/{SESSION_ID}" \
       -F "path/to/file.ts=<path/to/file.ts"
 
-  That call waits for the reviewer and returns when they click Done.
-  Standalone poll is also available:
+  3. That POST waits until the reviewer clicks Done.
+     Optional separate poll:
     curl -s "{BASE_URL}/review/{SESSION_ID}/poll"
 
-  Files not included in a re-upload are removed from the review.
-  When the review is returned, address each numbered comment.
+  4. Files not included in a re-upload are removed from the review.
+     When comments come back, address each numbered comment and re-upload the full set.
 
 file_updated: >-
   Review updated with {FILE_COUNT} file(s). Comments on removed files

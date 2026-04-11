@@ -55,7 +55,7 @@ function extractPublicKeyUrl(instructions: string): string {
   if (!match) {
     throw new Error(`Recipient public key URL not found in instructions:\n${instructions}`);
   }
-  return match[1];
+  return match[1].replace(/[.)]+$/, "");
 }
 
 test.describe("Encrypted Share", () => {
@@ -65,7 +65,7 @@ test.describe("Encrypted Share", () => {
     const body = await startShareSession(request);
     expect(body.sessionId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(body.url).toContain(`/s/${body.sessionId}`);
-    expect(body.message).toContain("localStorage permission");
+    expect(body.message).toContain("paste copied encryption instructions");
     expect(body.next).toContain(`/share/${body.sessionId}`);
     expect(body.next).toContain("rsa-oaep-256+aes-256-cbc+hmac-sha256");
   });
@@ -84,6 +84,9 @@ test.describe("Encrypted Share", () => {
     await page.getByRole("button", { name: "Enable & Copy Instructions" }).click();
     await expect(page.getByRole("button", { name: "Copy Agent Instructions" })).toBeVisible();
 
+    await expect
+      .poll(async () => (await page.evaluate(() => navigator.clipboard.readText())) as string)
+      .not.toBe("");
     const instructions = (await page.evaluate(() => navigator.clipboard.readText())) as string;
     const publicKeyUrl = extractPublicKeyUrl(instructions);
     expect(new URL(publicKeyUrl).pathname).toMatch(/^\/k\/[A-Za-z0-9_-]{11}$/);
@@ -130,6 +133,9 @@ test.describe("Encrypted Share", () => {
     await expect(page.getByText("different local key")).toBeVisible();
     await expect(page.getByText("Keys out of sync")).toBeVisible();
     await page.getByRole("button", { name: "Copy Fresh Instructions" }).click();
+    await expect
+      .poll(async () => (await page.evaluate(() => navigator.clipboard.readText())) as string)
+      .not.toBe("");
     const instructions = (await page.evaluate(() => navigator.clipboard.readText())) as string;
     const publicKeyUrl = extractPublicKeyUrl(instructions);
     const keyResponse = await request.get(publicKeyUrl, { headers: JSON_ACCEPT });

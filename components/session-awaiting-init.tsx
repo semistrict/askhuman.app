@@ -88,37 +88,37 @@ export function SessionAwaitingInit({
     const url = origin ? `${origin}/s/${sessionId}` : `/s/${sessionId}`;
     if (toolId === "diff") {
       return [
-        `I have opened the diff review page: ${url}`,
-        `Continue now by POSTing the diff payload to /diff/${sessionId}.`,
-        "Do not wait for any further confirmation from me.",
+        `Diff review page is open: ${url}`,
+        `Next step: POST the diff payload to ${origin}/diff/${sessionId}`,
+        "Do not wait for another reply from me.",
       ].join("\n");
     }
     if (toolId === "present") {
       return [
-        `I have opened the presentation review page: ${url}`,
-        `Continue now by POSTing the presentation markdown to /present/${sessionId}.`,
-        "Do not wait for any further confirmation from me.",
+        `Presentation review page is open: ${url}`,
+        `Next step: POST the presentation markdown to ${origin}/present/${sessionId}`,
+        "Do not wait for another reply from me.",
       ].join("\n");
     }
     if (toolId === "playground") {
       return [
-        `I have opened the playground review page: ${url}`,
-        `Continue now by POSTing the HTML payload to /playground/${sessionId}.`,
-        "Do not wait for any further confirmation from me.",
+        `Playground review page is open: ${url}`,
+        `Next step: POST the playground HTML to ${origin}/playground/${sessionId}`,
+        "Do not wait for another reply from me.",
       ].join("\n");
     }
     if (toolId === "share") {
       return [
-        `I have the encrypted share page ready: ${url}`,
-        "If this browser needs a fresh encryption key, I will send you the copied public-key instructions from that page next.",
-        `Continue by encrypting the document to my public key and POSTing the encrypted JSON envelope to /share/${sessionId}.`,
-        "Do not wait for any further confirmation from me.",
+        `Encrypted share page is open: ${url}`,
+        "If this browser needs a fresh key, I will send copied encryption instructions next.",
+        `Next step: encrypt the document to my public key and POST the ciphertext JSON to ${origin}/share/${sessionId}`,
+        "Do not wait for another reply from me.",
       ].join("\n");
     }
     return [
-      `I have opened the review page: ${url}`,
-      `Continue now by POSTing the review content to /review/${sessionId}.`,
-      "Do not wait for any further confirmation from me.",
+      `Review page is open: ${url}`,
+      `Next step: POST the review content to ${origin}/review/${sessionId}`,
+      "Do not wait for another reply from me.",
     ].join("\n");
   }, [sessionId, toolId]);
 

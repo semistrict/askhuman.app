@@ -1,21 +1,19 @@
 plan_instructions: |-
-  - Open the review page in the same user's browser you are already interacting with.
-    Try Chrome app mode for a clean window:
+  - Open {URL} for the same user. Prefer Chrome app mode:
      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{URL}" &
-    Or fall back to: open "{URL}" / xdg-open "{URL}"
-    Or just show the URL to the user (they cannot see this text).
-  - Poll for feedback (returns when the reviewer clicks Request Revision):
+    Fallback: open "{URL}" / xdg-open "{URL}"
+  - Poll for feedback. This returns when the reviewer clicks Request Revision:
      curl -s {POLL_URL}
-  - When feedback is returned, address each numbered comment and upload the updated file:
+  - When feedback comes back, address each numbered comment and upload the updated file:
      curl -s -X POST {BASE_URL}/review/{SESSION_ID} \
        -F "{FILE_PATH}=<{FILE_PATH}"
-  - To include a general response for the reviewer on update:
+  - To include a general response with the update:
      curl -s -X POST {BASE_URL}/review/{SESSION_ID} \
        -F "{FILE_PATH}=<{FILE_PATH}" \
        -F 'response=Addressed the requested revisions.'
 
 plan_comments: >-
-  Review complete. Address each numbered comment below.
+  Feedback is ready. Address each numbered comment below.
 
 plan_timeout: >-
   No new comments yet. The human may still be reviewing. Poll again.

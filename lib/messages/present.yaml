@@ -1,23 +1,21 @@
 present_created: |
   Presentation review session created.
 
-  Open the review page for the user. Try Chrome app mode for a
-  clean window:
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
-  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
-  Or just show the URL to the user (they cannot see this text).
+  Next steps:
 
-  Submit the presentation markdown to this session:
+  1. Open {BASE_URL}/s/{SESSION_ID} for the user. Prefer Chrome app mode:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+     Fallback: open "{BASE_URL}/s/{SESSION_ID}"
+
+  2. POST the presentation markdown:
     curl -s -X POST "{BASE_URL}/present/{SESSION_ID}" \
       -F "markdown=<slides.md"
 
-  That call waits for the reviewer and returns when they click Done.
-  Standalone poll is also available:
+  3. That POST waits until the reviewer clicks Done.
+     Optional separate poll:
     curl -s "{BASE_URL}/present/{SESSION_ID}/poll"
 
-  When the review is returned, address each numbered comment.
-  Selection comments include the selected text and nearby context when
-  available.
+  4. When comments come back, address each numbered comment and resubmit if needed.
 
 present_updated: >-
   Presentation updated. Continue polling for new comments.

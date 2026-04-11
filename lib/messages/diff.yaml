@@ -1,24 +1,24 @@
 diff_created: |
   Diff review session created.
 
-  Open the review page for the user. Try Chrome app mode for a
-  clean window:
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
-  Or fall back to: open "{BASE_URL}/s/{SESSION_ID}"
-  Or just show the URL to the user (they cannot see this text).
+  Next steps:
 
-  Submit the diff payload to this session:
+  1. Open {BASE_URL}/s/{SESSION_ID} for the user. Prefer Chrome app mode:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="{BASE_URL}/s/{SESSION_ID}" &
+     Fallback: open "{BASE_URL}/s/{SESSION_ID}"
+
+  2. POST the diff payload:
     curl -s -X POST "{BASE_URL}/diff/{SESSION_ID}" \
       -F description=@description.md \
       -F diff=@current.diff
 
-  That call waits for the reviewer and returns when they click Done.
-  Standalone poll is also available:
+  3. That POST waits until the reviewer clicks Done.
+     Optional separate poll:
     curl -s "{BASE_URL}/diff/{SESSION_ID}/poll"
 
-  When the review is returned, address each numbered comment.
+  4. When comments come back, address each numbered comment and resubmit the updated diff.
 
-  IMPORTANT: The description MUST narrate the change. Do not just
+  5. Before you submit, make sure the description narrates the change. Do not just
   submit a diff with a bare title. Describe WHY each file changed,
   what the reviewer should focus on, and break large changes into
   sections with markdown headings (## per file or logical group).

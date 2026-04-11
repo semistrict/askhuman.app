@@ -150,13 +150,8 @@ test.describe("Markdown File Review", () => {
     await request.post(`/s/${sessionId}/request-revision`);
 
     const pollRes = await pollPromise;
-    expect(pollRes.status).toBe(200);
-    const body = (await pollRes.json()) as {
-      status: string;
-      threads: Array<{ messages: Array<{ text: string }> }>;
-    };
-    expect(body.status).toBe("done");
-    expect(body.threads[0].messages[0].text).toBe("Feedback");
+    expect(pollRes.status).toBe(409);
+    expect((await pollRes.json()).error).toContain("already waiting");
     await actionPromise;
   });
 

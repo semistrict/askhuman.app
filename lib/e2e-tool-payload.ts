@@ -252,11 +252,14 @@ export function buildEncryptedToolAgentInstructions(args: {
         ? "Never send the plaintext HTML or any private key material to the server."
       : "Never send the plaintext JSON or any private key material to the server.";
   return [
-    `Use end-to-end encryption for my askhuman ${args.toolId} session.`,
+    `Use end-to-end encryption for this askhuman ${args.toolId} session.`,
     "",
-    "Prefer local openssl or libressl CLI for this encryption flow. Do not rely on Node.",
+    "Do these steps now. Use local openssl or libressl CLI. Do not rely on Node.",
+    `Create a uniquely named temp directory for this session, for example using the session ID ${args.sessionId}.`,
+    "Prefer writing a reusable helper script for this encryption flow and invoking it with session-specific inputs instead of pasting an inline shell script each round.",
     `1. Fetch the recipient public key JSON from ${args.publicKeyUrl}`,
-    "   It returns recipientKeyId and publicKeySpki. This short-lived URL expires after 24 hours.",
+    "   Read recipientKeyId and publicKeySpki from the JSON response.",
+    "   Reuse the same recipient key across sessions until the user sends a different key ID or new copied instructions.",
     `2. ${plaintextDescription}`,
     "3. Base64url-decode publicKeySpki to DER and convert it into an RSA public key that openssl can read.",
     "4. Generate a fresh 32-byte AES key, a fresh 32-byte HMAC key, and a fresh 16-byte IV.",
@@ -264,7 +267,7 @@ export function buildEncryptedToolAgentInstructions(args: {
     "6. Compute HMAC-SHA256 over iv || ciphertext using the HMAC key.",
     "7. Concatenate aesKey || hmacKey and encrypt that 64-byte blob with RSA-OAEP-SHA256 using the fetched public key.",
     "8. Base64url-encode encryptedKey, iv, ciphertext, and mac.",
-    `9. POST only ciphertext JSON to ${submitUrl} in this exact shape:`,
+    `9. POST only ciphertext JSON to ${submitUrl}`,
     `{"version":3,"alg":"rsa-oaep-256+aes-256-cbc+hmac-sha256","recipientKeyId":"...","encryptedKey":"...","iv":"...","ciphertext":"...","mac":"..."}`,
     "",
     plaintextLabel,
@@ -281,33 +284,33 @@ export function buildPlainToolContinueInstructions(args: {
 }): string {
   const url = `${args.baseUrl}/s/${args.sessionId}`;
   if (args.toolId === "review") {
-    return [
-      `I opened the review page: ${url}`,
-      "Continue without end-to-end encryption for this session.",
-      `POST the review content now to ${args.baseUrl}/review/${args.sessionId}.`,
-      "Use plain multipart form submission exactly as you normally would.",
-    ].join("\n");
+      return [
+        `Review page is open: ${url}`,
+        `Next step: POST the review content to ${args.baseUrl}/review/${args.sessionId}`,
+        "Use the normal plaintext multipart submission.",
+        "Do not wait for another reply from me.",
+      ].join("\n");
   }
   if (args.toolId === "diff") {
-    return [
-      `I opened the diff review page: ${url}`,
-      "Continue without end-to-end encryption for this session.",
-      `POST the diff payload now to ${args.baseUrl}/diff/${args.sessionId}.`,
-      "Use the normal description + diff multipart form submission.",
-    ].join("\n");
+      return [
+        `Diff review page is open: ${url}`,
+        `Next step: POST the diff payload to ${args.baseUrl}/diff/${args.sessionId}`,
+        "Use the normal description + diff multipart form submission.",
+        "Do not wait for another reply from me.",
+      ].join("\n");
   }
   if (args.toolId === "present") {
-    return [
-      `I opened the presentation review page: ${url}`,
-      "Continue without end-to-end encryption for this session.",
-      `POST the presentation markdown now to ${args.baseUrl}/present/${args.sessionId}.`,
-      "Use the normal plaintext submission.",
-    ].join("\n");
+      return [
+        `Presentation review page is open: ${url}`,
+        `Next step: POST the presentation markdown to ${args.baseUrl}/present/${args.sessionId}`,
+        "Use the normal plaintext submission.",
+        "Do not wait for another reply from me.",
+      ].join("\n");
   }
-  return [
-    `I opened the playground review page: ${url}`,
-    "Continue without end-to-end encryption for this session.",
-    `POST the playground HTML now to ${args.baseUrl}/playground/${args.sessionId}.`,
-    "Use the normal plaintext submission.",
-  ].join("\n");
+    return [
+      `Playground review page is open: ${url}`,
+      `Next step: POST the playground HTML to ${args.baseUrl}/playground/${args.sessionId}`,
+      "Use the normal plaintext submission.",
+      "Do not wait for another reply from me.",
+    ].join("\n");
 }

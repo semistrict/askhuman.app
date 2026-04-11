@@ -1,17 +1,16 @@
 # Connection / presence -- shared across all tools
 
 plan_not_connected: >-
-  The same user you are already interacting with has not connected yet.
-  Open it for them with Chrome app mode:
+  No human reviewer is connected yet. Open {URL} for the same user now.
+  Prefer Chrome app mode:
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   --app="{URL}" &
-  Or fall back to: open "{URL}" / xdg-open "{URL}"
-  Or just show the URL to the user.
+  Fallback: open "{URL}" / xdg-open "{URL}"
 
 plan_no_human: >-
-  No human reviewer tabs have been connected to this session for at
-  least 5 seconds. Ask the same user you are already interacting with
-  to open {URL} again, or open it for them with: open "{URL}"
+  No human reviewer tab has connected to this session for at least
+  5 seconds. Ask the same user to open {URL} again, or open it for
+  them with: open "{URL}"
 
 # Diff parsing errors
 

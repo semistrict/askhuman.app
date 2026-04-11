@@ -388,18 +388,21 @@ export function buildEncryptedShareAgentInstructions(args: {
 }): string {
   const submitUrl = `${args.baseUrl}/share/${args.sessionId}`;
   return [
-    "Use end-to-end encryption for my askhuman share session.",
+    "Use end-to-end encryption for this askhuman share session.",
     "",
-    "Prefer local openssl or libressl CLI for this encryption flow. Do not rely on Node.",
+    "Do these steps now. Use local openssl or libressl CLI. Do not rely on Node.",
+    `Create a uniquely named temp directory for this session, for example using the session ID ${args.sessionId}.`,
+    "Prefer writing a reusable helper script for this encryption flow and invoking it with session-specific inputs instead of pasting an inline shell script each round.",
     `1. Fetch the recipient public key JSON from ${args.publicKeyUrl}`,
-    "   It returns recipientKeyId and publicKeySpki. This short-lived URL expires after 24 hours.",
+    "   Read recipientKeyId and publicKeySpki from the JSON response.",
+    "   Reuse the same recipient key across sessions until the user sends a different key ID or new copied instructions.",
     "2. Base64url-decode publicKeySpki to DER and convert it into an RSA public key that openssl can read.",
     "3. Generate a fresh 32-byte AES key, a fresh 32-byte HMAC key, and a fresh 16-byte IV.",
     "4. Encrypt the markdown document bytes with AES-256-CBC using that AES key and IV.",
     "5. Compute HMAC-SHA256 over iv || ciphertext using the HMAC key.",
     "6. Concatenate aesKey || hmacKey and encrypt that 64-byte blob with RSA-OAEP-SHA256 using the fetched public key.",
     "7. Base64url-encode encryptedKey, iv, ciphertext, and mac.",
-    `8. POST only ciphertext JSON to ${submitUrl} in this exact shape:`,
+    `8. POST only ciphertext JSON to ${submitUrl}`,
     `{"version":3,"alg":"rsa-oaep-256+aes-256-cbc+hmac-sha256","recipientKeyId":"...","encryptedKey":"...","iv":"...","ciphertext":"...","mac":"..."}`,
     "",
     "Never send plaintext or any private key material to the server.",
@@ -427,6 +430,6 @@ export function buildEncryptedSessionErrorInstructions(args: {
     `Session ID: ${args.sessionId}`,
     `Error: ${args.message}`,
     ...(args.currentKeyId ? [`Current browser key ID: ${args.currentKeyId}`] : []),
-    "Please rebuild and resubmit the encrypted envelope for this session.",
+    "Next step: rebuild the encrypted envelope for this session and POST it again.",
   ].join("\n");
 }

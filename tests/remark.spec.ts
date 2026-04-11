@@ -73,6 +73,7 @@ test.describe("Presentation", () => {
     await expect(page.locator("header h1")).toHaveText("Opening");
     await expect(page.getByText("Welcome to the deck.")).toBeVisible();
 
+    await page.locator("main").click({ position: { x: 40, y: 40 } });
     await page.keyboard.press("ArrowRight");
     await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();
     await expect(page.getByText("Welcome to the deck.")).toHaveCount(0);
@@ -145,7 +146,7 @@ test.describe("Presentation", () => {
     const actionPromise = submitPresentSession(sessionId, PRESENT_MARKDOWN);
     await page.goto(`/s/${sessionId}`);
 
-    await page.getByTestId("slide-picker-trigger").click();
+    await page.getByRole("button", { name: "slide 1" }).click();
     await expect(page.getByTestId("slide-picker-option-2")).toContainText("Second Slide");
     await page.getByTestId("slide-picker-option-2").click();
     await expect(page.getByText("This slide contains anchorable text for feedback.")).toBeVisible();

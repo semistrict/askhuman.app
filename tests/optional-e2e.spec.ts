@@ -121,7 +121,8 @@ test.describe("Optional End-to-End Encryption", () => {
     );
 
     const actionPromise = submitEncryptedToolPayload("present", sessionId, envelope);
-    await expect(page.getByText("Secret Slides")).toBeVisible();
+    await expect(page.locator("header h1")).toHaveText("Secret Slides");
+    await expect(page.getByRole("article").getByRole("heading", { name: "Secret Slides" })).toBeVisible();
     await page.getByRole("button", { name: "Done" }).click();
 
     const actionRes = await actionPromise;
