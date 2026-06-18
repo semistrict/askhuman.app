@@ -14,11 +14,11 @@ The agent runs:
 curl -s https://askhuman.app
 ```
 
-The root response tells the agent to generate a self-contained HTML file, encrypt it locally with OpenSSL, upload only ciphertext to `/upload`, and append the local key as a `#k=...` URL fragment before sharing the link. The encrypted payload may include an optional `title` for the viewer tab and optional `filename` for display.
+The root response tells the agent to generate a self-contained HTML file, encrypt it locally with OpenSSL, upload only ciphertext multipart form fields to `/upload`, and append the local key as a `#k=...` URL fragment before sharing the link. The encrypted upload may include an optional `title` for the viewer tab and optional `filename` for display.
 
 ## Security Model
 
-- The server stores `{ version, alg, title?, filename?, iv, ciphertext, mac }`.
+- The server stores encrypted upload fields `{ version, alg, title?, filename?, iv, ciphertext, mac }`.
 - Optional `title` and `filename` metadata are visible to the server; keep them generic if sensitive.
 - The key is 64 random bytes encoded as 86 unpadded base64url characters.
 - The key lives only in the URL fragment, so it is not sent to the server.

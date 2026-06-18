@@ -7,6 +7,7 @@ import {
 } from "../lib/encrypted-html";
 
 const JSON_ACCEPT = { Accept: "application/json" };
+type EncryptedUploadForm = Record<string, string>;
 
 const AGENT_HTML = `<!doctype html>
 <html>
@@ -24,8 +25,28 @@ const AGENT_HTML = `<!doctype html>
   <body>
     <h1 id="title">Agent Generated HTML</h1>
     <p>The human can inspect this page.</p>
-  </body>
+</body>
 </html>`;
+
+function encryptedPayloadToMultipart(payload: {
+  version: number;
+  alg: string;
+  title?: string;
+  filename?: string;
+  iv: string;
+  ciphertext: string;
+  mac: string;
+}): EncryptedUploadForm {
+  return {
+    version: String(payload.version),
+    alg: payload.alg,
+    ...(payload.title ? { title: payload.title } : {}),
+    ...(payload.filename ? { filename: payload.filename } : {}),
+    iv: payload.iv,
+    ciphertext: payload.ciphertext,
+    mac: payload.mac,
+  };
+}
 
 async function uploadEncryptedHtml(request: {
   post: (url: string, options?: Record<string, unknown>) => Promise<{
@@ -39,7 +60,7 @@ async function uploadEncryptedHtml(request: {
   });
   const res = await request.post("/upload", {
     headers: JSON_ACCEPT,
-    data: payload,
+    multipart: encryptedPayloadToMultipart(payload),
   });
   expect(res.status()).toBe(200);
   const body = await res.json();
@@ -99,6 +120,23 @@ test.describe("Encrypted HTML sharing", () => {
     await expect(page.getByText("missing its #k= decryption key")).toBeVisible();
   });
 
+  test("share pages expose safe link-preview metadata", async ({ request }) => {
+    const { id, key } = await uploadEncryptedHtml(request);
+
+    const res = await request.get(`/s/${id}`, {
+      headers: { "User-Agent": "Slackbot-LinkExpanding 1.0" },
+    });
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+
+    expect(html).toContain("Human Preview | askhuman.app");
+    expect(html).toContain("og:title");
+    expect(html).toContain("twitter:card");
+    expect(html).toContain("End-to-end encrypted HTML share");
+    expect(html).not.toContain(key);
+    expect(html).not.toContain("Agent Generated HTML");
+  });
+
   test("root curl instructions describe only the encrypted HTML flow", async ({ request }) => {
     const res = await request.get("/", { headers: { "User-Agent": "Claude-User/1.0" } });
     expect(res.status()).toBe(200);
@@ -106,15 +144,26 @@ test.describe("Encrypted HTML sharing", () => {
     const text = await res.text();
 
     expect(text).toContain("agent-generated HTML file");
-    expect(text).toContain("\"title\":\"optional browser title\"");
+    expect(text).toContain("Required multipart form fields");
+    expect(text).toContain("title=<browser/link-preview title>");
+    expect(text).toContain("HTML expectations");
+    expect(text).toContain("Single file: inline all CSS and JS");
+    expect(text).toContain("every control should update the visible preview immediately");
+    expect(text).toContain("3-5 named presets");
+    expect(text).toContain("network access is blocked");
+    expect(text).toContain("--form-string \"version=1\"");
     expect(text).toContain("openssl rand 64 > \"$KEY_BIN\"");
     expect(text).toContain("KEY_B64");
     expect(text).toContain("/upload");
     expect(text).toContain("#k=");
+    expect(text).not.toContain("Content-Type: application/json");
+    expect(text).not.toContain("--data-binary");
+    expect(text).not.toContain("encrypted JSON");
     expect(text).not.toContain("/review");
     expect(text).not.toContain("/diff");
     expect(text).not.toContain("/playground");
     expect(text).not.toContain("/share");
+    expect(text).not.toContain("postMessage");
   });
 
   test("browser home points humans to the root curl flow", async ({ page }) => {
@@ -171,17 +220,36 @@ test.describe("Encrypted HTML sharing", () => {
     });
     expect(plaintext.status()).toBe(415);
 
+    const encryptedJson = await request.post("/upload", {
+      headers: { ...JSON_ACCEPT, "Content-Type": "application/json" },
+      data: {
+        version: ENCRYPTED_HTML_VERSION,
+        alg: ENCRYPTED_HTML_ALGORITHM,
+        iv: "abc",
+        ciphertext: "abc",
+        mac: "abc",
+      },
+    });
+    expect(encryptedJson.status()).toBe(415);
+
     const withPlaintextField = await request.post("/upload", {
       headers: JSON_ACCEPT,
-      data: { version: ENCRYPTED_HTML_VERSION, alg: ENCRYPTED_HTML_ALGORITHM, html: AGENT_HTML },
+      multipart: {
+        version: String(ENCRYPTED_HTML_VERSION),
+        alg: ENCRYPTED_HTML_ALGORITHM,
+        html: AGENT_HTML,
+        iv: "abc",
+        ciphertext: "abc",
+        mac: "abc",
+      },
     });
     expect(withPlaintextField.status()).toBe(400);
     expect((await withPlaintextField.json()).error).toContain("plaintext");
 
     const unsupported = await request.post("/upload", {
       headers: JSON_ACCEPT,
-      data: {
-        version: ENCRYPTED_HTML_VERSION,
+      multipart: {
+        version: String(ENCRYPTED_HTML_VERSION),
         alg: "plain",
         iv: "abc",
         ciphertext: "abc",

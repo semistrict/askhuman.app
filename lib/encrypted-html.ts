@@ -3,7 +3,7 @@ export const ENCRYPTED_HTML_ALGORITHM = "aes-256-cbc+hmac-sha256" as const;
 export const ENCRYPTED_HTML_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const ENCRYPTED_HTML_KEY_BASE64URL_LENGTH = 86;
 export const MAX_CIPHERTEXT_BYTES = 10 * 1024 * 1024;
-export const MAX_UPLOAD_JSON_BYTES = 15 * 1024 * 1024;
+export const MAX_UPLOAD_FORM_BYTES = 15 * 1024 * 1024;
 
 const AES_KEY_BYTES = 32;
 const HMAC_KEY_BYTES = 32;

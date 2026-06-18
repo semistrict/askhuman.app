@@ -2,13 +2,16 @@ import { env } from "cloudflare:workers";
 import { createCompactId } from "@/lib/compact-id";
 import {
   ENCRYPTED_HTML_TTL_SECONDS,
-  MAX_UPLOAD_JSON_BYTES,
+  MAX_UPLOAD_FORM_BYTES,
   parseEncryptedHtmlPayload,
 } from "@/lib/encrypted-html";
 
 type ErrorBody = { error: string };
 
 export const dynamic = "force-dynamic";
+
+const ALLOWED_FIELDS = new Set(["version", "alg", "title", "filename", "iv", "ciphertext", "mac"]);
+const FORBIDDEN_FIELDS = new Set(["key", "html", "plaintext", "content"]);
 
 function wantsJson(request: Request): boolean {
   return /\bapplication\/json\b/i.test(request.headers.get("accept") || "");
@@ -33,35 +36,71 @@ function errorResponse(request: Request, message: string, status: number): Respo
   return textResponse(`Error: ${message}`, { status });
 }
 
+async function formValueToString(value: FormDataEntryValue, name: string): Promise<string> {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  const text = await value.text();
+  if (text.length > MAX_UPLOAD_FORM_BYTES) {
+    throw new Error(`${name} is too large.`);
+  }
+  return text.trim();
+}
+
+async function formDataToPayloadInput(formData: FormData): Promise<Record<string, unknown>> {
+  const result: Record<string, unknown> = {};
+
+  for (const name of FORBIDDEN_FIELDS) {
+    if (formData.has(name)) {
+      throw new Error("Upload only encrypted payload fields; never include plaintext or keys.");
+    }
+  }
+
+  for (const name of formData.keys()) {
+    if (!ALLOWED_FIELDS.has(name)) {
+      throw new Error(`Unsupported upload field: ${name}`);
+    }
+    if (formData.getAll(name).length > 1) {
+      throw new Error(`Upload field ${name} must appear only once.`);
+    }
+  }
+
+  for (const name of ALLOWED_FIELDS) {
+    const value = formData.get(name);
+    if (value === null) continue;
+    const stringValue = await formValueToString(value, name);
+    if (!stringValue && (name === "title" || name === "filename")) continue;
+    result[name] = name === "version" ? Number(stringValue) : stringValue;
+  }
+
+  return result;
+}
+
 export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") || "";
-  if (!/\bapplication\/json\b/i.test(contentType)) {
-    return errorResponse(request, "Upload encrypted-html.json with Content-Type: application/json.", 415);
+  if (!/\bmultipart\/form-data\b/i.test(contentType)) {
+    return errorResponse(request, "Upload encrypted fields with multipart/form-data.", 415);
   }
 
   const contentLength = Number(request.headers.get("content-length") || "0");
-  if (contentLength > MAX_UPLOAD_JSON_BYTES) {
+  if (contentLength > MAX_UPLOAD_FORM_BYTES) {
     return errorResponse(request, "Encrypted upload is too large.", 413);
   }
 
-  let raw = "";
+  let formData: FormData;
   try {
-    raw = await request.text();
+    formData = await request.formData();
   } catch {
     return errorResponse(request, "Could not read request body.", 400);
-  }
-  if (!raw.trim()) {
-    return errorResponse(request, "Upload body must not be empty.", 400);
-  }
-  if (raw.length > MAX_UPLOAD_JSON_BYTES) {
-    return errorResponse(request, "Encrypted upload is too large.", 413);
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return errorResponse(request, "Upload body must be valid JSON.", 400);
+    parsed = await formDataToPayloadInput(formData);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Encrypted multipart form is invalid.";
+    return errorResponse(request, message, 400);
   }
 
   let payload;
@@ -91,5 +130,5 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  return errorResponse(request, "Use POST /upload with encrypted HTML JSON.", 405);
+  return errorResponse(request, "Use POST /upload with encrypted multipart form fields.", 405);
 }
