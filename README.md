@@ -23,6 +23,8 @@ The root response tells the agent to generate a self-contained HTML file, encryp
 - The key is 64 random bytes encoded as 86 unpadded base64url characters.
 - The key lives only in the URL fragment, so it is not sent to the server.
 - The browser verifies HMAC-SHA256, decrypts with AES-256-CBC, and renders the HTML in a sandboxed iframe.
+- Uploads are capped at 15 MiB per multipart request and 10 MiB decoded ciphertext.
+- Per Cloudflare-detected client IP, uploads are limited to 20 attempts per minute, 100 successful uploads per day, and 100 MiB uploaded per day.
 - Links expire after 7 days.
 
 ## Development
@@ -38,7 +40,8 @@ pnpm run deploy
 ## Runtime
 
 - **Framework:** vinext / Next.js on Cloudflare Workers
-- **Storage:** Cloudflare KV for encrypted payloads
+- **Storage:** Cloudflare KV for encrypted payloads and hashed per-client upload quota counters
+- **Abuse guardrails:** Cloudflare Rate Limiting binding plus KV daily upload quotas
 - **Public endpoints:** `GET /`, `POST /upload`, `GET /s/{id}`, `GET /llms.txt`
 
 ## License

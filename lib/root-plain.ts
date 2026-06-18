@@ -28,6 +28,13 @@ Optional multipart form fields:
   title=<browser/link-preview title>
   filename=<display filename>
 
+Upload limits:
+
+- Request body: 15 MiB max multipart form; ciphertext field: 10 MiB max decoded bytes.
+- Per Cloudflare-detected client IP: 20 upload attempts per minute.
+- Per Cloudflare-detected client IP: 100 successful uploads and 100 MiB uploaded per day.
+- If /upload returns 429, wait for the Retry-After seconds before trying again.
+
 HTML expectations:
 
 - Single file: inline all CSS and JS. Do not depend on CDNs, remote fonts, or external APIs.

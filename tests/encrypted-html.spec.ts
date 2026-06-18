@@ -151,6 +151,9 @@ test.describe("Encrypted HTML sharing", () => {
     expect(text).toContain("every control should update the visible preview immediately");
     expect(text).toContain("3-5 named presets");
     expect(text).toContain("network access is blocked");
+    expect(text).toContain("Upload limits");
+    expect(text).toContain("100 successful uploads and 100 MiB uploaded per day");
+    expect(text).toContain("Retry-After");
     expect(text).toContain("--form-string \"version=1\"");
     expect(text).toContain("openssl rand 64 > \"$KEY_BIN\"");
     expect(text).toContain("KEY_B64");

@@ -5,6 +5,12 @@ import {
   MAX_UPLOAD_FORM_BYTES,
   parseEncryptedHtmlPayload,
 } from "@/lib/encrypted-html";
+import {
+  createUploadActorKey,
+  estimateUploadBytes,
+  reserveClientUploadQuota,
+  UPLOAD_ATTEMPT_RATE_LIMIT,
+} from "@/lib/upload-limits";
 
 type ErrorBody = { error: string };
 
@@ -18,38 +24,70 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Accept, Content-Type",
 };
 
+type UploadEnv = typeof env & {
+  UPLOAD_RATE_LIMITER?: RateLimit;
+};
+
 function wantsJson(request: Request): boolean {
   return /\bapplication\/json\b/i.test(request.headers.get("accept") || "");
+}
+
+function headersWithCors(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  result.set("Cache-Control", "no-store");
+  for (const [name, value] of Object.entries(CORS_HEADERS)) {
+    result.set(name, value);
+  }
+  return result;
 }
 
 function textResponse(value: string, init?: ResponseInit): Response {
   return new Response(value.endsWith("\n") ? value : `${value}\n`, {
     ...init,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-      ...CORS_HEADERS,
+    headers: headersWithCors({
       ...Object.fromEntries(new Headers(init?.headers)),
-    },
+      "Content-Type": "text/plain; charset=utf-8",
+    }),
   });
 }
 
-function errorResponse(request: Request, message: string, status: number): Response {
+function errorResponse(
+  request: Request,
+  message: string,
+  status: number,
+  headers?: HeadersInit
+): Response {
   const body: ErrorBody = { error: message };
   if (wantsJson(request)) {
     return Response.json(body, {
       status,
-      headers: {
-        "Cache-Control": "no-store",
-        ...CORS_HEADERS,
-      },
+      headers: headersWithCors(headers),
     });
   }
-  return textResponse(`Error: ${message}`, { status });
+  return textResponse(`Error: ${message}`, { status, headers });
+}
+
+function readContentLength(request: Request): number | null {
+  const raw = request.headers.get("content-length");
+  if (!raw) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value;
+}
+
+async function enforceUploadAttemptRateLimit(actorKey: string): Promise<boolean> {
+  const limiter = (env as UploadEnv).UPLOAD_RATE_LIMITER;
+  if (!limiter) return true;
+
+  const { success } = await limiter.limit({ key: `upload:${actorKey}` });
+  return success;
 }
 
 async function formValueToString(value: FormDataEntryValue, name: string): Promise<string> {
   if (typeof value === "string") {
+    if (value.length > MAX_UPLOAD_FORM_BYTES) {
+      throw new Error(`${name} is too large.`);
+    }
     return value.trim();
   }
 
@@ -95,9 +133,17 @@ export async function POST(request: Request) {
     return errorResponse(request, "Upload encrypted fields with multipart/form-data.", 415);
   }
 
-  const contentLength = Number(request.headers.get("content-length") || "0");
-  if (contentLength > MAX_UPLOAD_FORM_BYTES) {
+  const contentLength = readContentLength(request);
+  if (contentLength !== null && contentLength > MAX_UPLOAD_FORM_BYTES) {
     return errorResponse(request, "Encrypted upload is too large.", 413);
+  }
+
+  const actorKey = await createUploadActorKey(request);
+  const underAttemptLimit = await enforceUploadAttemptRateLimit(actorKey);
+  if (!underAttemptLimit) {
+    return errorResponse(request, "Too many upload attempts. Try again soon.", 429, {
+      "Retry-After": String(UPLOAD_ATTEMPT_RATE_LIMIT.periodSeconds),
+    });
   }
 
   let formData: FormData;
@@ -123,6 +169,17 @@ export async function POST(request: Request) {
     return errorResponse(request, message, 400);
   }
 
+  const quota = await reserveClientUploadQuota(
+    env.SHARE_KEYS,
+    actorKey,
+    estimateUploadBytes(payload, contentLength)
+  );
+  if (!quota.allowed) {
+    return errorResponse(request, quota.message, 429, {
+      "Retry-After": String(quota.retryAfterSeconds),
+    });
+  }
+
   const id = createCompactId(11);
   await env.SHARE_KEYS.put(id, JSON.stringify(payload), {
     expirationTtl: ENCRYPTED_HTML_TTL_SECONDS,
@@ -135,10 +192,7 @@ export async function POST(request: Request) {
     return Response.json(
       { id, url, expiresInSeconds: ENCRYPTED_HTML_TTL_SECONDS },
       {
-        headers: {
-          "Cache-Control": "no-store",
-          ...CORS_HEADERS,
-        },
+        headers: headersWithCors(),
       }
     );
   }
