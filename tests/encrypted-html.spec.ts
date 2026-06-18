@@ -194,12 +194,15 @@ test.describe("Encrypted HTML sharing", () => {
     await expect(bookmarklet).toBeVisible();
     await expect
       .poll(async () => decodeURIComponent((await bookmarklet.getAttribute("href")) || ""))
-      .toContain("http://localhost:15032/bookmarklet.js");
+      .toContain('const askhumanOrigin = "http://localhost:15032"');
     const href = (await bookmarklet.getAttribute("href")) || "";
     expect(href).toMatch(/^javascript:/);
     const decoded = decodeURIComponent(href.replace(/^javascript:/, ""));
-    expect(decoded).toContain('d.createElement("script")');
-    expect(decoded).toContain("s.dataset.askhumanBookmarklet");
+    expect(decoded).toContain('receiverUrl = askhumanOrigin + "/bookmarklet-receiver"');
+    expect(decoded).toContain("crypto.subtle");
+    expect(decoded).toContain("postMessage");
+    expect(decoded).toContain("askhuman.bookmarklet.snapshot");
+    expect(decoded).not.toContain('createElement("script")');
 
     const agentStart = page.getByRole("button", { name: /Agent starts here/ });
     await expect(agentStart.getByText("copy command")).toBeVisible();
@@ -223,7 +226,7 @@ test.describe("Encrypted HTML sharing", () => {
     expect(lightBackground).not.toBe(darkBackground);
   });
 
-  test("bookmarklet route serves the encrypted snapshot uploader", async ({ request }) => {
+  test("bookmarklet route serves the encrypted snapshot sender", async ({ request }) => {
     const res = await request.get("/bookmarklet.js");
     expect(res.status()).toBe(200);
     expect(res.headers()["content-type"]).toContain("application/javascript");
@@ -233,12 +236,41 @@ test.describe("Encrypted HTML sharing", () => {
     expect(js).toContain("crypto.subtle");
     expect(js).toContain("AES-CBC");
     expect(js).toContain("HMAC");
-    expect(js).toContain("FormData");
-    expect(js).toContain('fetch(askhumanOrigin + "/upload"');
-    expect(js).toContain('"#k="');
+    expect(js).toContain("/bookmarklet-receiver");
+    expect(js).toContain("postMessage");
+    expect(js).toContain("askhuman.bookmarklet.snapshot");
     expect(js).toContain("document.documentElement.cloneNode(true)");
+    expect(js).not.toContain('createElement("script")');
     expect(js).not.toContain("/review");
     expect(js).not.toContain("/playground");
+  });
+
+  test("bookmarklet receiver uploads posted ciphertext and redirects to a keyed share", async ({
+    page,
+  }) => {
+    const { payload, key } = await createEncryptedHtmlPayload(AGENT_HTML, {
+      filename: "receiver-preview.html",
+      title: "Receiver Preview",
+    });
+
+    await page.goto("/bookmarklet-receiver");
+    await expect(page.getByText("Waiting For Snapshot")).toBeVisible();
+    await page.evaluate(
+      ({ payload, key }) => {
+        const message = { type: "askhuman.bookmarklet.snapshot", payload: { ...payload, key } };
+        const interval = window.setInterval(() => {
+          window.postMessage(message, window.location.origin);
+        }, 100);
+        window.setTimeout(() => window.clearInterval(interval), 5000);
+        window.postMessage(message, window.location.origin);
+      },
+      { payload, key }
+    );
+
+    await page.waitForURL((url) => url.pathname.startsWith("/s/") && url.hash === `#k=${key}`);
+    await expect(page).toHaveTitle("Receiver Preview | askhuman.app");
+    const frame = page.frameLocator("iframe");
+    await expect(frame.locator("#title")).toHaveText("Agent Generated HTML");
   });
 
   test("upload responses include CORS headers for bookmarklet requests", async ({ request }) => {

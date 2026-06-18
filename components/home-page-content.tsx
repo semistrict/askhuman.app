@@ -1,14 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { buildInlineBookmarkletHref } from "@/lib/bookmarklet-code";
 
 const ROOT_COMMAND = "curl -s https://askhuman.app";
-
-function createBookmarkletHref(origin: string): string {
-  const src = `${origin.replace(/\/$/, "")}/bookmarklet.js`;
-  const loader = `(()=>{var d=document,s=d.createElement("script");s.src=${JSON.stringify(src)}+"?t="+Date.now();s.async=true;s.dataset.askhumanBookmarklet="loader";s.onerror=()=>alert("askhuman.app bookmarklet was blocked by this page.");d.documentElement.appendChild(s);})()`;
-  return `javascript:${encodeURIComponent(loader)}`;
-}
 
 async function copyText(value: string): Promise<void> {
   try {
@@ -93,7 +88,10 @@ export function HomePageContent() {
   const bookmarkletRef = useRef<HTMLAnchorElement>(null);
 
   useEffect(() => {
-    bookmarkletRef.current?.setAttribute("href", createBookmarkletHref(window.location.origin));
+    bookmarkletRef.current?.setAttribute(
+      "href",
+      buildInlineBookmarkletHref(window.location.origin)
+    );
   }, []);
 
   return (
@@ -142,7 +140,7 @@ export function HomePageContent() {
             </a>
             <p className="mt-3">
               Drag it to your bookmarks bar. Click it on a page to encrypt a DOM snapshot and open
-              the share link.
+              the share link in askhuman.app.
             </p>
           </div>
 
