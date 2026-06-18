@@ -12,6 +12,11 @@ export const dynamic = "force-dynamic";
 
 const ALLOWED_FIELDS = new Set(["version", "alg", "title", "filename", "iv", "ciphertext", "mac"]);
 const FORBIDDEN_FIELDS = new Set(["key", "html", "plaintext", "content"]);
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Accept, Content-Type",
+};
 
 function wantsJson(request: Request): boolean {
   return /\bapplication\/json\b/i.test(request.headers.get("accept") || "");
@@ -23,6 +28,7 @@ function textResponse(value: string, init?: ResponseInit): Response {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
+      ...CORS_HEADERS,
       ...Object.fromEntries(new Headers(init?.headers)),
     },
   });
@@ -31,7 +37,13 @@ function textResponse(value: string, init?: ResponseInit): Response {
 function errorResponse(request: Request, message: string, status: number): Response {
   const body: ErrorBody = { error: message };
   if (wantsJson(request)) {
-    return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+    return Response.json(body, {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+        ...CORS_HEADERS,
+      },
+    });
   }
   return textResponse(`Error: ${message}`, { status });
 }
@@ -122,11 +134,26 @@ export async function POST(request: Request) {
   if (wantsJson(request)) {
     return Response.json(
       { id, url, expiresInSeconds: ENCRYPTED_HTML_TTL_SECONDS },
-      { headers: { "Cache-Control": "no-store" } }
+      {
+        headers: {
+          "Cache-Control": "no-store",
+          ...CORS_HEADERS,
+        },
+      }
     );
   }
 
   return textResponse(url);
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...CORS_HEADERS,
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 export async function GET(request: Request) {

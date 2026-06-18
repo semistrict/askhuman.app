@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const ROOT_COMMAND = "curl -s https://askhuman.app";
+
+function createBookmarkletHref(origin: string): string {
+  const src = `${origin.replace(/\/$/, "")}/bookmarklet.js`;
+  const loader = `(()=>{var d=document,s=d.createElement("script");s.src=${JSON.stringify(src)}+"?t="+Date.now();s.async=true;s.dataset.askhumanBookmarklet="loader";s.onerror=()=>alert("askhuman.app bookmarklet was blocked by this page.");d.documentElement.appendChild(s);})()`;
+  return `javascript:${encodeURIComponent(loader)}`;
+}
 
 async function copyText(value: string): Promise<void> {
   try {
@@ -84,6 +90,12 @@ function CopyBlock({
 }
 
 export function HomePageContent() {
+  const bookmarkletRef = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    bookmarkletRef.current?.setAttribute("href", createBookmarkletHref(window.location.origin));
+  }, []);
+
   return (
     <main className="min-h-screen bg-[var(--background)] px-5 py-8 text-[var(--foreground)] sm:px-8">
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-5xl content-center gap-8 lg:grid-cols-[0.9fr_1.1fr]">
@@ -114,6 +126,23 @@ export function HomePageContent() {
             <p>
               The curl response gives the agent the OpenSSL recipe, the upload endpoint, and the
               exact rule that the final URL must end with <code className="font-mono">#k=...</code>.
+            </p>
+          </div>
+
+          <div className="border border-[var(--border)] bg-[var(--surface)] p-4 text-sm leading-7 text-[var(--muted-foreground)] shadow-[5px_5px_0_var(--hard-shadow)]">
+            <p className="font-mono text-[11px] uppercase leading-none text-[var(--accent)]">
+              Browser bookmarklet
+            </p>
+            <a
+              ref={bookmarkletRef}
+              href="/bookmarklet.js"
+              className="mt-3 inline-block border border-[var(--border)] px-3 py-2 font-mono text-xs uppercase text-[var(--foreground)] shadow-[3px_3px_0_var(--hard-shadow)] transition-transform hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--hard-shadow)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)]"
+            >
+              askhuman snapshot
+            </a>
+            <p className="mt-3">
+              Drag it to your bookmarks bar. Click it on a page to encrypt a DOM snapshot and open
+              the share link.
             </p>
           </div>
 

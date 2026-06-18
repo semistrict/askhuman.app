@@ -82,7 +82,7 @@ test.describe("Encrypted HTML sharing", () => {
     await expect(page.getByRole("link", { name: "askhuman.app" })).toHaveAttribute("href", "/");
     await expect(page.getByText("end-to-end encrypted")).toBeVisible();
     await expect(page).toHaveTitle("Human Preview | askhuman.app");
-    await expect(page.getByText("Human Preview")).toBeVisible();
+    await expect(page.locator("header").getByText("Human Preview", { exact: true })).toBeVisible();
     await expect(page.locator("iframe")).toHaveAttribute("allow", "clipboard-write");
     await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-forms");
     const frame = page.frameLocator("iframe");
@@ -167,6 +167,16 @@ test.describe("Encrypted HTML sharing", () => {
   });
 
   test("browser home points humans to the root curl flow", async ({ page }) => {
+    await page.context().grantPermissions(["clipboard-write"], {
+      origin: "http://localhost:15032",
+    });
+    await page.addInitScript(() => {
+      const clipboard = { writeText: () => Promise.resolve() };
+      Object.defineProperty(Navigator.prototype, "clipboard", {
+        configurable: true,
+        get: () => clipboard,
+      });
+    });
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: /Encrypted HTML links/ })).toBeVisible();
@@ -179,6 +189,17 @@ test.describe("Encrypted HTML sharing", () => {
       page.getByText("Run curl -s https://askhuman.app and follow the instructions")
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "llms.txt" })).toBeVisible();
+
+    const bookmarklet = page.getByRole("link", { name: "askhuman snapshot" });
+    await expect(bookmarklet).toBeVisible();
+    await expect
+      .poll(async () => decodeURIComponent((await bookmarklet.getAttribute("href")) || ""))
+      .toContain("http://localhost:15032/bookmarklet.js");
+    const href = (await bookmarklet.getAttribute("href")) || "";
+    expect(href).toMatch(/^javascript:/);
+    const decoded = decodeURIComponent(href.replace(/^javascript:/, ""));
+    expect(decoded).toContain('d.createElement("script")');
+    expect(decoded).toContain("s.dataset.askhumanBookmarklet");
 
     const agentStart = page.getByRole("button", { name: /Agent starts here/ });
     await expect(agentStart.getByText("copy command")).toBeVisible();
@@ -200,6 +221,36 @@ test.describe("Encrypted HTML sharing", () => {
     );
 
     expect(lightBackground).not.toBe(darkBackground);
+  });
+
+  test("bookmarklet route serves the encrypted snapshot uploader", async ({ request }) => {
+    const res = await request.get("/bookmarklet.js");
+    expect(res.status()).toBe(200);
+    expect(res.headers()["content-type"]).toContain("application/javascript");
+    expect(res.headers()["access-control-allow-origin"]).toBe("*");
+    const js = await res.text();
+
+    expect(js).toContain("crypto.subtle");
+    expect(js).toContain("AES-CBC");
+    expect(js).toContain("HMAC");
+    expect(js).toContain("FormData");
+    expect(js).toContain('fetch(askhumanOrigin + "/upload"');
+    expect(js).toContain('"#k="');
+    expect(js).toContain("document.documentElement.cloneNode(true)");
+    expect(js).not.toContain("/review");
+    expect(js).not.toContain("/playground");
+  });
+
+  test("upload responses include CORS headers for bookmarklet requests", async ({ request }) => {
+    const res = await request.post("/upload", {
+      headers: { Accept: "text/plain", "Content-Type": "text/html" },
+      data: AGENT_HTML,
+    });
+
+    expect(res.status()).toBe(415);
+    expect(res.headers()["access-control-allow-origin"]).toBe("*");
+    expect(res.headers()["access-control-allow-methods"]).toContain("POST");
+    expect(await res.text()).toContain("multipart/form-data");
   });
 
   test("llms.txt matches the root plain-text instructions", async ({ request }) => {

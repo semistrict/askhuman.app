@@ -31,13 +31,5 @@
 			"id": "95101a961c4746d4b8620e21c6070571",
 			"preview_id": "034e4098d73f4250afdeb952f5a6bea4"
 		}
-	],
-	"migrations": [
-		{
-			"tag": "v7",
-			"deleted_classes": [
-				"SessionDO"
-			]
-		}
 	]
 }

@@ -112,8 +112,10 @@ export function EncryptedHtmlViewer({ shareId, payload, loadError }: Props) {
     }
 
     decrypt();
+    window.addEventListener("hashchange", decrypt);
     return () => {
       cancelled = true;
+      window.removeEventListener("hashchange", decrypt);
     };
   }, [loadError, payload]);
 
