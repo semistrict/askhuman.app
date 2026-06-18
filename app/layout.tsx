@@ -1,22 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { AppSettingsPanel } from "@/components/app-settings-panel";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
-  title: "askhuman.app — human-in-the-loop review tools for AI agents",
+  title: "askhuman.app — encrypted HTML links for agents",
   description:
-    "Human-in-the-loop review tools for AI agents: review files, diffs, and playgrounds via REST and MCP.",
+    "Create shareable end-to-end encrypted links from agent-generated single-file HTML.",
 };
 
 export default function RootLayout({
@@ -27,12 +28,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${plexSans.variable} ${plexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        {children}
-        <AppSettingsPanel />
-      </body>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

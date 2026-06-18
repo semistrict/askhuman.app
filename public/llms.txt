@@ -1,38 +1,60 @@
 # askhuman.app
 
-Human-in-the-loop review tools for AI agents.
-Start a tool session, open the URL for the user, then submit the tool payload.
+Create one shareable, end-to-end encrypted link from an agent-generated HTML file.
 
-## Review
+The human should be able to say:
 
-Start a review session:
+  curl askhuman.app and use that to create a shareable link from the HTML file
 
-  curl -s -X POST https://askhuman.app/review
+Agent flow:
 
-## Diff review
+1. Generate exactly one self-contained HTML file.
+2. Encrypt it locally. Never send plaintext or the key to askhuman.app.
+3. POST only encrypted JSON to https://askhuman.app/upload.
+4. Append the local key as #k=... before sharing the URL with the human.
+   The fragment key is 64 random bytes encoded as 86 base64url characters.
 
-  curl -s -X POST https://askhuman.app/diff
+Required payload:
 
-## Present
+  {"version":1,"alg":"aes-256-cbc+hmac-sha256","iv":"...","ciphertext":"...","mac":"..."}
 
-  curl -s -X POST https://askhuman.app/present
+OpenSSL + curl recipe:
 
-## Playground
+  b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
-  curl -s -X POST https://askhuman.app/playground
+  HTML_FILE="page.html"
+  WORKDIR="$(mktemp -d)"
+  KEY_BIN="$WORKDIR/key.bin"
+  IV_BIN="$WORKDIR/iv.bin"
+  CIPHERTEXT_BIN="$WORKDIR/ciphertext.bin"
+  MAC_BIN="$WORKDIR/mac.bin"
+  PAYLOAD_JSON="$WORKDIR/encrypted-html.json"
 
-## Encrypted share
+  openssl rand 64 > "$KEY_BIN"
+  KEY_B64="$(b64url < "$KEY_BIN")"
+  KEY_MATERIAL_HEX="$(od -An -tx1 -v "$KEY_BIN" | tr -d ' \n')"
+  AES_KEY="$(printf '%s' "$KEY_MATERIAL_HEX" | cut -c1-64)"
+  MAC_KEY="$(printf '%s' "$KEY_MATERIAL_HEX" | cut -c65-128)"
 
-  curl -s -X POST https://askhuman.app/share
+  openssl rand 16 > "$IV_BIN"
+  IV_HEX="$(od -An -tx1 -v "$IV_BIN" | tr -d ' \n')"
+  openssl enc -aes-256-cbc -K "$AES_KEY" -iv "$IV_HEX" -nosalt \
+    -in "$HTML_FILE" -out "$CIPHERTEXT_BIN"
+  cat "$IV_BIN" "$CIPHERTEXT_BIN" | \
+    openssl dgst -sha256 -mac HMAC -macopt "hexkey:$MAC_KEY" -binary > "$MAC_BIN"
 
-Each start call returns a sessionId, a review URL, and the exact next call.
-Open the URL for the same user you are already interacting with.
-Review, diff, present, and playground sessions can optionally switch to
-end-to-end encryption if the user enables it in the browser before submission.
-Encrypted share sessions always use end-to-end encryption.
-For large inputs, write them to a temporary file first and submit with
-`-F "name=<path"` or `@path` instead of inlining huge strings.
-For a cleaner reviewer window, prefer Chrome app mode:
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --app="URL" &
-The tool submit call waits for the human and then polls automatically.
-Standalone poll is still available with GET .../{id}/poll.
+  IV_B64="$(b64url < "$IV_BIN")"
+  CIPHERTEXT_B64="$(b64url < "$CIPHERTEXT_BIN")"
+  MAC_B64="$(b64url < "$MAC_BIN")"
+
+  printf '{"version":1,"alg":"aes-256-cbc+hmac-sha256","iv":"%s","ciphertext":"%s","mac":"%s"}\n' \
+    "$IV_B64" "$CIPHERTEXT_B64" "$MAC_B64" > "$PAYLOAD_JSON"
+
+  URL="$(curl -s -X POST https://askhuman.app/upload \
+    -H "Content-Type: application/json" \
+    --data-binary "@$PAYLOAD_JSON")"
+
+  printf '%s#k=%s\n' "$URL" "$KEY_B64"
+
+Give the final printed URL to the human. The #k= fragment is not sent to the server.
+Links expire after 7 days.

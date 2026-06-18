@@ -6,53 +6,26 @@ function isCurlRequest(request: NextRequest): boolean {
   return /^curl\//i.test(ua);
 }
 
-function sessionRedirectTarget(pathname: string): string {
-  const parts = pathname.split("/").filter(Boolean);
-  if (parts.length >= 2) {
-    return `/s/${parts[1]}`;
-  }
-  return "/";
-}
-
 export function proxy(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/s/") && isCurlRequest(request)) {
-    const url = request.nextUrl.toString();
-    const text = [
-      "This URL is meant for the human reviewer, not the agent.",
-      "",
-      "Show it to the same user you are already interacting with, or open it in their browser with:",
-      `open "${url}"`,
-      `xdg-open "${url}"`,
-      "",
-      "For agent-side automation, use the diff session, request, reply, dismiss, and complete curl endpoints instead.",
-      "",
-    ].join("\n");
-    return new NextResponse(text, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
-  }
-
-  if (request.nextUrl.pathname.startsWith("/s/")) {
+  if (!isCurlRequest(request)) {
     return NextResponse.next();
   }
 
-  const accept = request.headers.get("accept") || "";
-  if (!accept.includes("text/html")) {
-    return NextResponse.next();
-  }
+  const text = [
+    "This encrypted viewer URL is meant for the human's browser, not curl.",
+    "",
+    "Give the full URL, including its #k= fragment, to the human.",
+    "The fragment contains the decryption key and is never sent to askhuman.app.",
+    "",
+  ].join("\n");
 
-  const target = sessionRedirectTarget(request.nextUrl.pathname);
-  return NextResponse.redirect(new URL(target, request.url));
+  return new NextResponse(text, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 }
 
 export default proxy;
 
 export const config = {
-  matcher: [
-    "/s/:id",
-    "/plan",
-    "/plan/:path*",
-    "/diff",
-    "/diff/:path*",
-  ],
+  matcher: ["/s/:id"],
 };

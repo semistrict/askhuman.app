@@ -1,76 +1,137 @@
 "use client";
 
-import { HomeSettingsLink } from "@/components/home-settings-link";
+import { useEffect, useState, type ReactNode } from "react";
 
-function CopyCard({
+const ROOT_COMMAND = "curl -s https://askhuman.app";
+
+async function copyText(value: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    const didCopy = document.execCommand("copy");
+    textarea.remove();
+    if (!didCopy) {
+      throw new Error("Clipboard copy was blocked.");
+    }
+  }
+}
+
+function CopyBlock({
   label,
-  command,
+  value,
+  copyValue: valueToCopy,
 }: {
   label: string;
-  command: string;
+  value: ReactNode;
+  copyValue?: string;
 }) {
+  const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");
+
+  useEffect(() => {
+    if (status === "idle") return;
+    const timeout = window.setTimeout(() => setStatus("idle"), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [status]);
+
+  async function copyValue() {
+    try {
+      await copyText(valueToCopy ?? String(value));
+      setStatus("copied");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  const statusText =
+    status === "copied" ? "copied" : status === "error" ? "copy blocked" : "copy command";
+
   return (
     <button
       type="button"
-      className="group relative mb-3 rounded-md border border-[#2a2724] bg-[#1a1816] px-5 py-4 text-left transition-colors hover:border-[#4a4540]"
-      onClick={() => navigator.clipboard.writeText(command)}
+      onClick={copyValue}
+      className="group block w-full border border-[var(--border)] bg-[var(--surface)] p-4 text-left shadow-[5px_5px_0_var(--hard-shadow)] transition-transform hover:-translate-y-0.5 hover:shadow-[7px_7px_0_var(--hard-shadow)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)]"
     >
-      <div className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.05em] text-[#6b6560]">
-        {label}
-      </div>
-      <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[13px] leading-6 text-[#b0aca6]">
-        {command}
-      </pre>
-      <span className="pointer-events-none absolute top-3 right-3 font-mono text-[11px] text-[#6b6560] opacity-0 transition-opacity group-hover:opacity-100">
-        copy
+      <span className="mb-2 flex items-center justify-between gap-3 font-mono text-[11px] uppercase text-[var(--accent)]">
+        <span>{label}</span>
+        <span
+          aria-live="polite"
+          className={
+            status === "copied"
+              ? "text-[var(--accent)]"
+              : status === "error"
+                ? "text-[var(--destructive)]"
+                : "text-[var(--quiet-foreground)]"
+          }
+        >
+          {statusText}
+        </span>
       </span>
+      <blockquote className="border-l-4 border-[var(--accent)] pl-4 text-sm leading-7 text-[var(--muted-foreground)]">
+        {value}
+      </blockquote>
     </button>
   );
 }
 
 export function HomePageContent() {
   return (
-    <main className="min-h-screen bg-[#0c0c0c] px-8 py-12 text-[#b0aca6]">
-      <div className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-[560px] flex-col justify-center">
-        <h1 className="mb-6 font-mono text-5xl tracking-[-0.04em] text-[#e8e4e0]">
-          askhuman<span className="font-normal text-[#6b6560]">.app</span>
-        </h1>
+    <main className="min-h-screen bg-[var(--background)] px-5 py-8 text-[var(--foreground)] sm:px-8">
+      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-5xl content-center gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+        <section className="border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[8px_8px_0_var(--hard-shadow)]">
+          <p className="font-mono text-xs uppercase text-[var(--accent)]">askhuman.app</p>
+          <h1 className="mt-5 max-w-lg text-4xl font-medium leading-tight sm:text-5xl">
+            Encrypted HTML links for agent-made pages.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-[var(--muted-foreground)]">
+            The server stores ciphertext for seven days. The browser gets the key from the URL
+            fragment and renders the decrypted single-file HTML in a sandbox.
+          </p>
+        </section>
 
-        <CopyCard
-          label="Install skill"
-          command="npx skills add semistrict/askhuman.app"
-        />
+        <section className="grid content-center gap-5">
+          <CopyBlock
+            label="Agent starts here"
+            value={
+              <>
+                Run <code className="font-mono">curl -s https://askhuman.app</code> and follow
+                the instructions to upload the HTML file.
+              </>
+            }
+            copyValue={ROOT_COMMAND}
+          />
 
-        <div className="my-4 flex items-center gap-4 font-mono text-[11px] text-[#4a4540]">
-          <div className="h-px flex-1 bg-[#2a2724]" />
-          <span>or</span>
-          <div className="h-px flex-1 bg-[#2a2724]" />
-        </div>
+          <div className="border border-[var(--border)] bg-[var(--surface)] p-4 text-sm leading-7 text-[var(--muted-foreground)] shadow-[5px_5px_0_var(--hard-shadow)]">
+            <p>
+              The curl response gives the agent the OpenSSL recipe, the upload endpoint, and the
+              exact rule that the final URL must end with <code className="font-mono">#k=...</code>.
+            </p>
+          </div>
 
-        <CopyCard
-          label="Prompt-inject yourself"
-          command={'claude "$(curl -s https://askhuman.app) -- review my current diff"'}
-        />
-
-        <p className="mt-2 mb-5 font-mono text-[11px] text-[#6b6560]">
-          Works with any agent that accepts a prompt string.
-        </p>
-
-        <div className="mt-6 flex gap-5 border-t border-[#2a2724] pt-5 font-mono text-xs">
-          <a
-            href="https://github.com/semistrict/askhuman.app"
-            className="text-[#8a8580] underline underline-offset-2 transition-colors hover:text-[#e8e4e0]"
-          >
-            github
-          </a>
-          <HomeSettingsLink />
-          <a
-            href="/llms.txt"
-            className="text-[#8a8580] underline underline-offset-2 transition-colors hover:text-[#e8e4e0]"
-          >
-            llms.txt
-          </a>
-        </div>
+          <div className="flex gap-5 font-mono text-xs">
+            <a
+              href="https://github.com/semistrict/askhuman.app"
+              className="text-[var(--foreground)] underline decoration-[var(--accent)] underline-offset-4"
+            >
+              github
+            </a>
+            <a
+              href="/llms.txt"
+              className="text-[var(--foreground)] underline decoration-[var(--accent)] underline-offset-4"
+            >
+              llms.txt
+            </a>
+          </div>
+        </section>
       </div>
     </main>
   );
