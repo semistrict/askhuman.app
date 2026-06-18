@@ -6,6 +6,8 @@ import {
   ENCRYPTED_HTML_COMPRESSION,
   ENCRYPTED_HTML_KEY_BASE64URL_LENGTH,
   ENCRYPTED_HTML_VERSION,
+  formatByteSize,
+  MAX_UPLOAD_FORM_BYTES,
 } from "@/lib/encrypted-html";
 
 const SNAPSHOT_MESSAGE = "askhuman.bookmarklet.snapshot";
@@ -96,7 +98,7 @@ function replyToSource(event: MessageEvent, type: string): void {
   );
 }
 
-async function uploadSnapshot(payload: SnapshotPayload): Promise<string> {
+function createUploadForm(payload: SnapshotPayload): FormData {
   const form = new FormData();
   form.set("version", String(payload.version));
   form.set("alg", payload.alg);
@@ -106,15 +108,40 @@ async function uploadSnapshot(payload: SnapshotPayload): Promise<string> {
   form.set("iv", payload.iv);
   form.set("ciphertext", payload.ciphertext);
   form.set("mac", payload.mac);
+  return form;
+}
 
-  const response = await fetch("/upload", {
+function payloadSizeMessage(size: number): string {
+  return `${formatByteSize(size)} (${size.toLocaleString()} bytes). Limit: ${formatByteSize(MAX_UPLOAD_FORM_BYTES)} (${MAX_UPLOAD_FORM_BYTES.toLocaleString()} bytes).`;
+}
+
+async function createMeasuredUploadRequest(payload: SnapshotPayload): Promise<{
+  request: Request;
+  size: number;
+}> {
+  const request = new Request("/upload", {
     method: "POST",
     headers: { Accept: "text/plain" },
-    body: form,
+    body: createUploadForm(payload),
   });
+  const size = (await request.clone().arrayBuffer()).byteLength;
+  return { request, size };
+}
+
+async function uploadSnapshot(payload: SnapshotPayload): Promise<string> {
+  const { request, size } = await createMeasuredUploadRequest(payload);
+  if (size > MAX_UPLOAD_FORM_BYTES) {
+    throw new Error(`Payload too large: ${payloadSizeMessage(size)}`);
+  }
+
+  const response = await fetch(request);
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(text || "Upload failed.");
+    const message = text || response.statusText || "Upload failed.";
+    if (response.status === 413 || /payload too large|too large/i.test(message)) {
+      throw new Error(`${message.replace(/^Error:\s*/i, "").trim()} Payload size: ${payloadSizeMessage(size)}`);
+    }
+    throw new Error(message);
   }
   return text.trim();
 }

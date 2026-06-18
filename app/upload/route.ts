@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createCompactId } from "@/lib/compact-id";
 import {
   ENCRYPTED_HTML_TTL_SECONDS,
+  formatByteSize,
   MAX_UPLOAD_FORM_BYTES,
   parseEncryptedHtmlPayload,
 } from "@/lib/encrypted-html";
@@ -94,15 +95,21 @@ async function enforceUploadAttemptRateLimit(actorKey: string): Promise<boolean>
 
 async function formValueToString(value: FormDataEntryValue, name: string): Promise<string> {
   if (typeof value === "string") {
-    if (value.length > MAX_UPLOAD_FORM_BYTES) {
-      throw new Error(`${name} is too large.`);
+    const size = new TextEncoder().encode(value).byteLength;
+    if (size > MAX_UPLOAD_FORM_BYTES) {
+      throw new Error(
+        `${name} is too large: ${formatByteSize(size)} (${size.toLocaleString()} bytes). Limit: ${formatByteSize(MAX_UPLOAD_FORM_BYTES)} (${MAX_UPLOAD_FORM_BYTES.toLocaleString()} bytes).`
+      );
     }
     return value.trim();
   }
 
   const text = await value.text();
-  if (text.length > MAX_UPLOAD_FORM_BYTES) {
-    throw new Error(`${name} is too large.`);
+  const size = new TextEncoder().encode(text).byteLength;
+  if (size > MAX_UPLOAD_FORM_BYTES) {
+    throw new Error(
+      `${name} is too large: ${formatByteSize(size)} (${size.toLocaleString()} bytes). Limit: ${formatByteSize(MAX_UPLOAD_FORM_BYTES)} (${MAX_UPLOAD_FORM_BYTES.toLocaleString()} bytes).`
+    );
   }
   return text.trim();
 }
@@ -144,7 +151,11 @@ export async function POST(request: Request) {
 
   const contentLength = readContentLength(request);
   if (contentLength !== null && contentLength > MAX_UPLOAD_FORM_BYTES) {
-    return errorResponse(request, "Encrypted upload is too large.", 413);
+    return errorResponse(
+      request,
+      `Encrypted upload is too large: ${formatByteSize(contentLength)} (${contentLength.toLocaleString()} bytes). Limit: ${formatByteSize(MAX_UPLOAD_FORM_BYTES)} (${MAX_UPLOAD_FORM_BYTES.toLocaleString()} bytes).`,
+      413
+    );
   }
 
   const actorKey = await createUploadActorKey(request);

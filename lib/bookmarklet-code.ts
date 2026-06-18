@@ -1,3 +1,5 @@
+import { MAX_UPLOAD_FORM_BYTES } from "@/lib/encrypted-html";
+
 export const BOOKMARKLET_RECEIVER_PATH = "/bookmarklet-receiver";
 
 export function buildBookmarkletRuntime(originExpression: string): string {
@@ -12,6 +14,24 @@ export function buildBookmarkletRuntime(originExpression: string): string {
   const messageType = "askhuman.bookmarklet.snapshot";
   const readyType = "askhuman.bookmarklet.ready";
   const receivedType = "askhuman.bookmarklet.received";
+  const maxUploadFormBytes = ${MAX_UPLOAD_FORM_BYTES};
+
+  function formatByteSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+    const units = ["bytes", "KiB", "MiB", "GiB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    return (unitIndex === 0 ? Math.round(value) : value.toFixed(2)) + " " + units[unitIndex];
+  }
+
+  function uploadSizeMessage(size) {
+    return formatByteSize(size) + " (" + size.toLocaleString() + " bytes). Limit: " +
+      formatByteSize(maxUploadFormBytes) + " (" + maxUploadFormBytes.toLocaleString() + " bytes).";
+  }
 
   function bytesToBase64Url(bytes) {
     let binary = "";
@@ -105,11 +125,13 @@ export function buildBookmarkletRuntime(originExpression: string): string {
     return declarations.join("");
   }
 
-  function copyElementSnapshot(source, clone) {
+  function copyElementSnapshot(source, clone, options) {
     if (!(source instanceof Element) || !(clone instanceof Element)) return;
-    try {
-      clone.setAttribute("style", serializeComputedStyle(getComputedStyle(source)));
-    } catch {}
+    if (options.computedStyles) {
+      try {
+        clone.setAttribute("style", serializeComputedStyle(getComputedStyle(source)));
+      } catch {}
+    }
 
     if (source instanceof HTMLInputElement && clone instanceof HTMLInputElement) {
       clone.setAttribute("value", source.value);
@@ -132,15 +154,15 @@ export function buildBookmarkletRuntime(originExpression: string): string {
     }
   }
 
-  function copyComputedSnapshots(sourceRoot, cloneRoot) {
-    copyElementSnapshot(sourceRoot, cloneRoot);
+  function copySnapshots(sourceRoot, cloneRoot, options) {
+    copyElementSnapshot(sourceRoot, cloneRoot, options);
     const sourceWalker = document.createTreeWalker(sourceRoot, 1);
     const cloneWalker = document.createTreeWalker(cloneRoot, 1);
     while (true) {
       const source = sourceWalker.nextNode();
       const clone = cloneWalker.nextNode();
       if (!source || !clone) break;
-      copyElementSnapshot(source, clone);
+      copyElementSnapshot(source, clone, options);
     }
   }
 
@@ -187,9 +209,9 @@ export function buildBookmarkletRuntime(originExpression: string): string {
     }
   }
 
-  function snapshotHtml() {
+  function snapshotHtml(options) {
     const clone = document.documentElement.cloneNode(true);
-    copyComputedSnapshots(document.documentElement, clone);
+    copySnapshots(document.documentElement, clone, options);
     clone.querySelectorAll("[data-askhuman-bookmarklet]").forEach((node) => node.remove());
     clone.querySelectorAll("script").forEach((node) => node.remove());
     prepareHeadForOffline(clone);
@@ -259,6 +281,48 @@ export function buildBookmarkletRuntime(originExpression: string): string {
     };
   }
 
+  function uploadFormForPayload(payload) {
+    const form = new FormData();
+    form.set("version", String(payload.version));
+    form.set("alg", payload.alg);
+    if (payload.compression) form.set("compression", payload.compression);
+    if (payload.title) form.set("title", payload.title);
+    if (payload.filename) form.set("filename", payload.filename);
+    form.set("iv", payload.iv);
+    form.set("ciphertext", payload.ciphertext);
+    form.set("mac", payload.mac);
+    return form;
+  }
+
+  async function measurePayloadUploadBytes(payload) {
+    const request = new Request(askhumanOrigin + "/upload", {
+      method: "POST",
+      headers: { Accept: "text/plain" },
+      body: uploadFormForPayload(payload),
+    });
+    return (await request.arrayBuffer()).byteLength;
+  }
+
+  async function buildPayload(title, options) {
+    const html = snapshotHtml(options);
+    const encrypted = await encryptHtml(html);
+    const payload = {
+      version: 1,
+      alg: algorithm,
+      compression: encrypted.compression,
+      title: title || "Page snapshot",
+      filename: safeFilename(),
+      iv: encrypted.iv,
+      ciphertext: encrypted.ciphertext,
+      mac: encrypted.mac,
+      key: encrypted.key,
+    };
+    return {
+      payload,
+      uploadBytes: await measurePayloadUploadBytes(payload),
+    };
+  }
+
   function waitForReceiver(popup, payload) {
     return new Promise((resolve, reject) => {
       let attempts = 0;
@@ -307,25 +371,19 @@ export function buildBookmarkletRuntime(originExpression: string): string {
       throw new Error("Popup was blocked. Allow popups for this page and try again.");
     }
 
-    showStatus("Serializing offline page...");
-    const html = snapshotHtml();
     const title = (document.title || location.href || "Page snapshot").replace(/\s+/g, " ").trim().slice(0, 140);
-    showStatus("Compressing and encrypting page snapshot...");
-    const encrypted = await encryptHtml(html);
-    const payload = {
-      version: 1,
-      alg: algorithm,
-      compression: encrypted.compression,
-      title: title || "Page snapshot",
-      filename: safeFilename(),
-      iv: encrypted.iv,
-      ciphertext: encrypted.ciphertext,
-      mac: encrypted.mac,
-      key: encrypted.key,
-    };
+    showStatus("Serializing full offline page...");
+    let result = await buildPayload(title, { computedStyles: true });
+    if (result.uploadBytes > maxUploadFormBytes) {
+      showStatus("Full snapshot is " + formatByteSize(result.uploadBytes) + "; retrying compact snapshot...");
+      result = await buildPayload(title, { computedStyles: false });
+    }
+    if (result.uploadBytes > maxUploadFormBytes) {
+      throw new Error("Payload too large after compact snapshot: " + uploadSizeMessage(result.uploadBytes));
+    }
 
-    showStatus("Sending encrypted snapshot to askhuman.app...");
-    await waitForReceiver(popup, payload);
+    showStatus("Sending encrypted snapshot to askhuman.app (" + formatByteSize(result.uploadBytes) + ")...");
+    await waitForReceiver(popup, result.payload);
     clearStatus();
   }
 

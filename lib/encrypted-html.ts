@@ -30,6 +30,19 @@ export type EncryptedHtmlBundle = {
   key: string;
 };
 
+export function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
+  const units = ["bytes", "KiB", "MiB", "GiB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = unitIndex === 0 ? String(Math.round(value)) : value.toFixed(2);
+  return `${rounded} ${units[unitIndex]}`;
+}
+
 function normalizeBase64(base64Url: string): string {
   const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
   return `${base64}${"=".repeat((4 - (base64.length % 4)) % 4)}`;

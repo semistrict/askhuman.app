@@ -5,6 +5,7 @@ import {
   ENCRYPTED_HTML_COMPRESSION,
   ENCRYPTED_HTML_KEY_BASE64URL_LENGTH,
   ENCRYPTED_HTML_VERSION,
+  MAX_UPLOAD_FORM_BYTES,
 } from "../lib/encrypted-html";
 
 const JSON_ACCEPT = { Accept: "application/json" };
@@ -252,6 +253,8 @@ test.describe("Encrypted HTML sharing", () => {
     expect(js).toContain("document.documentElement.cloneNode(true)");
     expect(js).toContain("getComputedStyle");
     expect(js).toContain("readableStylesheetCss");
+    expect(js).toContain("retrying compact snapshot");
+    expect(js).toContain("Payload too large after compact snapshot");
     expect(js).not.toContain('createElement("script")');
     expect(js).not.toContain("/review");
     expect(js).not.toContain("/playground");
@@ -324,6 +327,38 @@ test.describe("Encrypted HTML sharing", () => {
     await expect(page).toHaveTitle("Receiver Preview | askhuman.app");
     const frame = page.frameLocator("iframe");
     await expect(frame.locator("#title")).toHaveText("Agent Generated HTML");
+  });
+
+  test("bookmarklet receiver reports measured payload size when upload is too large", async ({
+    page,
+  }) => {
+    await page.goto("/bookmarklet-receiver");
+    await expect(page.getByText("Waiting For Snapshot")).toBeVisible();
+    await page.evaluate(
+      ({ maxUploadBytes }) => {
+        const payload = {
+          version: 1,
+          alg: "aes-256-cbc+hmac-sha256",
+          title: "Huge Snapshot",
+          filename: "huge.html",
+          iv: "A".repeat(22),
+          ciphertext: "B".repeat(maxUploadBytes),
+          mac: "C".repeat(43),
+          key: "D".repeat(86),
+        };
+        const message = { type: "askhuman.bookmarklet.snapshot", payload };
+        const interval = window.setInterval(() => {
+          window.postMessage(message, window.location.origin);
+        }, 100);
+        window.setTimeout(() => window.clearInterval(interval), 5000);
+        window.postMessage(message, window.location.origin);
+      },
+      { maxUploadBytes: MAX_UPLOAD_FORM_BYTES }
+    );
+
+    await expect(page.getByText("Cannot Create Share")).toBeVisible();
+    await expect(page.getByText(/Payload too large:/)).toBeVisible();
+    await expect(page.getByText(/bytes\)\. Limit:/)).toBeVisible();
   });
 
   test("upload responses include CORS headers for bookmarklet requests", async ({ request }) => {
