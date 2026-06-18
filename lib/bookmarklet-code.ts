@@ -47,16 +47,153 @@ export function buildBookmarkletRuntime(originExpression: string): string {
     return value + ">\n";
   }
 
-  function snapshotHtml() {
-    const clone = document.documentElement.cloneNode(true);
-    clone.querySelectorAll("[data-askhuman-bookmarklet]").forEach((node) => node.remove());
+  function absolutizeUrl(value, baseUrl) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || /^(#|data:|blob:|javascript:|mailto:|tel:)/i.test(trimmed)) return value;
+    try {
+      return new URL(trimmed, baseUrl || location.href).href;
+    } catch {
+      return value;
+    }
+  }
 
-    const head = clone.querySelector("head");
-    if (head && !head.querySelector("base")) {
+  function absolutizeCss(cssText, baseUrl) {
+    return String(cssText || "").replace(/url\(([^)]+)\)/gi, (match, rawUrl) => {
+      const unquoted = rawUrl.trim().replace(/^["']|["']$/g, "");
+      const absolute = absolutizeUrl(unquoted, baseUrl);
+      return absolute === unquoted ? match : 'url("' + absolute.replace(/"/g, '\\"') + '")';
+    });
+  }
+
+  function absolutizeSrcset(value, baseUrl) {
+    return String(value || "")
+      .split(",")
+      .map((candidate) => {
+        const parts = candidate.trim().split(/\s+/);
+        if (!parts[0]) return "";
+        parts[0] = absolutizeUrl(parts[0], baseUrl);
+        return parts.join(" ");
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  function readableStylesheetCss() {
+    const chunks = [];
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        const rules = sheet.cssRules;
+        if (!rules) continue;
+        const css = Array.from(rules)
+          .map((rule) => absolutizeCss(rule.cssText, sheet.href || location.href))
+          .join("\n");
+        if (css) chunks.push(css);
+      } catch {}
+    }
+    return chunks.join("\n\n");
+  }
+
+  function serializeComputedStyle(style) {
+    const declarations = [];
+    for (let index = 0; index < style.length; index += 1) {
+      const name = style[index];
+      const value = style.getPropertyValue(name);
+      if (!value) continue;
+      const priority = style.getPropertyPriority(name);
+      declarations.push(name + ":" + value + (priority ? " !important" : "") + ";");
+    }
+    return declarations.join("");
+  }
+
+  function copyElementSnapshot(source, clone) {
+    if (!(source instanceof Element) || !(clone instanceof Element)) return;
+    try {
+      clone.setAttribute("style", serializeComputedStyle(getComputedStyle(source)));
+    } catch {}
+
+    if (source instanceof HTMLInputElement && clone instanceof HTMLInputElement) {
+      clone.setAttribute("value", source.value);
+      if (source.checked) clone.setAttribute("checked", "");
+      else clone.removeAttribute("checked");
+    } else if (source instanceof HTMLTextAreaElement && clone instanceof HTMLTextAreaElement) {
+      clone.textContent = source.value;
+    } else if (source instanceof HTMLOptionElement && clone instanceof HTMLOptionElement) {
+      if (source.selected) clone.setAttribute("selected", "");
+      else clone.removeAttribute("selected");
+    } else if (source instanceof HTMLCanvasElement && clone instanceof HTMLCanvasElement) {
+      try {
+        const image = document.createElement("img");
+        image.src = source.toDataURL("image/png");
+        image.width = source.width;
+        image.height = source.height;
+        image.alt = clone.getAttribute("aria-label") || "Canvas snapshot";
+        clone.replaceWith(image);
+      } catch {}
+    }
+  }
+
+  function copyComputedSnapshots(sourceRoot, cloneRoot) {
+    copyElementSnapshot(sourceRoot, cloneRoot);
+    const sourceWalker = document.createTreeWalker(sourceRoot, 1);
+    const cloneWalker = document.createTreeWalker(cloneRoot, 1);
+    while (true) {
+      const source = sourceWalker.nextNode();
+      const clone = cloneWalker.nextNode();
+      if (!source || !clone) break;
+      copyElementSnapshot(source, clone);
+    }
+  }
+
+  function absolutizeCloneAttributes(clone) {
+    const urlAttributes = ["href", "src", "poster", "action", "cite", "data"];
+    clone.querySelectorAll("*").forEach((element) => {
+      for (const name of urlAttributes) {
+        if (element.hasAttribute(name)) {
+          element.setAttribute(name, absolutizeUrl(element.getAttribute(name), location.href));
+        }
+      }
+      if (element.hasAttribute("srcset")) {
+        element.setAttribute("srcset", absolutizeSrcset(element.getAttribute("srcset"), location.href));
+      }
+      if (element.hasAttribute("style")) {
+        element.setAttribute("style", absolutizeCss(element.getAttribute("style"), location.href));
+      }
+    });
+  }
+
+  function prepareHeadForOffline(clone) {
+    const head = clone.querySelector("head") || clone.insertBefore(document.createElement("head"), clone.firstChild);
+    if (!head.querySelector("meta[charset]")) {
+      const charset = document.createElement("meta");
+      charset.setAttribute("charset", document.characterSet || "utf-8");
+      head.insertBefore(charset, head.firstChild);
+    }
+    if (!head.querySelector("base")) {
       const base = document.createElement("base");
       base.href = location.href;
       head.insertBefore(base, head.firstChild);
     }
+    head.querySelectorAll('link[rel~="stylesheet"]').forEach((node) => node.remove());
+    head.querySelectorAll("style").forEach((node) => {
+      node.textContent = absolutizeCss(node.textContent || "", location.href);
+    });
+
+    const css = readableStylesheetCss();
+    if (css) {
+      const style = document.createElement("style");
+      style.dataset.askhumanOfflineCss = "readable-stylesheets";
+      style.textContent = css;
+      head.appendChild(style);
+    }
+  }
+
+  function snapshotHtml() {
+    const clone = document.documentElement.cloneNode(true);
+    copyComputedSnapshots(document.documentElement, clone);
+    clone.querySelectorAll("[data-askhuman-bookmarklet]").forEach((node) => node.remove());
+    clone.querySelectorAll("script").forEach((node) => node.remove());
+    prepareHeadForOffline(clone);
+    absolutizeCloneAttributes(clone);
 
     return doctypeToString() + clone.outerHTML;
   }
@@ -94,12 +231,20 @@ export function buildBookmarkletRuntime(originExpression: string): string {
     document.querySelector("[data-askhuman-bookmarklet='status']")?.remove();
   }
 
+  async function gzipBytes(bytes) {
+    if (typeof CompressionStream !== "function") {
+      throw new Error("This browser does not support gzip CompressionStream.");
+    }
+    const stream = new Blob([toArrayBuffer(bytes)]).stream().pipeThrough(new CompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
   async function encryptHtml(html) {
     const rawKey = crypto.getRandomValues(new Uint8Array(64));
     const aesKeyBytes = rawKey.slice(0, 32);
     const macKeyBytes = rawKey.slice(32);
     const iv = crypto.getRandomValues(new Uint8Array(16));
-    const plaintext = new TextEncoder().encode(html);
+    const plaintext = await gzipBytes(new TextEncoder().encode(html));
     const aesKey = await crypto.subtle.importKey("raw", toArrayBuffer(aesKeyBytes), { name: "AES-CBC" }, false, ["encrypt"]);
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-CBC", iv: toArrayBuffer(iv) }, aesKey, toArrayBuffer(plaintext)));
     const macKey = await crypto.subtle.importKey("raw", toArrayBuffer(macKeyBytes), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -107,6 +252,7 @@ export function buildBookmarkletRuntime(originExpression: string): string {
 
     return {
       key: bytesToBase64Url(rawKey),
+      compression: "gzip",
       iv: bytesToBase64Url(iv),
       ciphertext: bytesToBase64Url(ciphertext),
       mac: bytesToBase64Url(mac),
@@ -161,13 +307,15 @@ export function buildBookmarkletRuntime(originExpression: string): string {
       throw new Error("Popup was blocked. Allow popups for this page and try again.");
     }
 
-    showStatus("Encrypting page snapshot...");
+    showStatus("Serializing offline page...");
     const html = snapshotHtml();
     const title = (document.title || location.href || "Page snapshot").replace(/\s+/g, " ").trim().slice(0, 140);
+    showStatus("Compressing and encrypting page snapshot...");
     const encrypted = await encryptHtml(html);
     const payload = {
       version: 1,
       alg: algorithm,
+      compression: encrypted.compression,
       title: title || "Page snapshot",
       filename: safeFilename(),
       iv: encrypted.iv,

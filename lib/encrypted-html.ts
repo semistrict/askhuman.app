@@ -1,5 +1,6 @@
 export const ENCRYPTED_HTML_VERSION = 1 as const;
 export const ENCRYPTED_HTML_ALGORITHM = "aes-256-cbc+hmac-sha256" as const;
+export const ENCRYPTED_HTML_COMPRESSION = "gzip" as const;
 export const ENCRYPTED_HTML_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const ENCRYPTED_HTML_KEY_BASE64URL_LENGTH = 86;
 export const MAX_CIPHERTEXT_BYTES = 10 * 1024 * 1024;
@@ -16,6 +17,7 @@ const KEY_BASE64_URL_RE = /^[A-Za-z0-9_-]{86}$/;
 export type EncryptedHtmlPayload = {
   version: typeof ENCRYPTED_HTML_VERSION;
   alg: typeof ENCRYPTED_HTML_ALGORITHM;
+  compression?: typeof ENCRYPTED_HTML_COMPRESSION;
   title?: string;
   filename?: string;
   iv: string;
@@ -48,6 +50,28 @@ function concatBytes(...parts: Uint8Array[]): Uint8Array {
     offset += part.byteLength;
   }
   return result;
+}
+
+async function transformBytes(
+  bytes: Uint8Array,
+  stream: CompressionStream | DecompressionStream
+): Promise<Uint8Array> {
+  const readable = new Blob([toArrayBuffer(bytes)]).stream();
+  return new Uint8Array(await new Response(readable.pipeThrough(stream)).arrayBuffer());
+}
+
+async function gzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+  if (typeof CompressionStream !== "function") {
+    throw new Error("gzip compression is not available in this runtime.");
+  }
+  return transformBytes(bytes, new CompressionStream("gzip"));
+}
+
+async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("gzip decompression is not available in this browser.");
+  }
+  return transformBytes(bytes, new DecompressionStream("gzip"));
 }
 
 export function decodeBase64Url(value: string): Uint8Array {
@@ -105,6 +129,13 @@ export function parseEncryptedHtmlPayload(value: unknown): EncryptedHtmlPayload 
   if (record.alg !== ENCRYPTED_HTML_ALGORITHM) {
     throw new Error(`Unsupported encrypted HTML algorithm: ${String(record.alg)}`);
   }
+  if (
+    "compression" in record &&
+    record.compression !== undefined &&
+    record.compression !== ENCRYPTED_HTML_COMPRESSION
+  ) {
+    throw new Error(`Unsupported encrypted HTML compression: ${String(record.compression)}`);
+  }
 
   const filename =
     typeof record.filename === "string" && record.filename.trim()
@@ -131,6 +162,9 @@ export function parseEncryptedHtmlPayload(value: unknown): EncryptedHtmlPayload 
   return {
     version: ENCRYPTED_HTML_VERSION,
     alg: ENCRYPTED_HTML_ALGORITHM,
+    ...(record.compression === ENCRYPTED_HTML_COMPRESSION
+      ? { compression: ENCRYPTED_HTML_COMPRESSION }
+      : {}),
     ...(title ? { title } : {}),
     ...(filename ? { filename } : {}),
     iv,
@@ -216,24 +250,38 @@ export async function decryptEncryptedHtmlPayload(
     aesKey,
     toArrayBuffer(ciphertext)
   );
-  return new TextDecoder().decode(plaintext);
+  const plaintextBytes = new Uint8Array(plaintext);
+  const htmlBytes =
+    payload.compression === ENCRYPTED_HTML_COMPRESSION
+      ? await gunzipBytes(plaintextBytes)
+      : plaintextBytes;
+  return new TextDecoder().decode(htmlBytes);
 }
 
 export async function createEncryptedHtmlPayload(
   html: string,
-  options: { filename?: string; key?: string; title?: string } = {}
+  options: {
+    compression?: typeof ENCRYPTED_HTML_COMPRESSION | false;
+    filename?: string;
+    key?: string;
+    title?: string;
+  } = {}
 ): Promise<EncryptedHtmlBundle> {
+  const compression = options.compression === false ? undefined : ENCRYPTED_HTML_COMPRESSION;
   const key = options.key ?? encodeBase64Url(globalThis.crypto.getRandomValues(new Uint8Array(URL_KEY_BYTES)));
   const keyBytes = parseUrlKey(key);
   const aesKeyBytes = keyBytes.slice(0, AES_KEY_BYTES);
   const macKeyBytes = keyBytes.slice(AES_KEY_BYTES);
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(CBC_IV_BYTES));
   const aesKey = await importAesKey(aesKeyBytes, "encrypt");
+  const plaintextBytes = new TextEncoder().encode(html);
+  const bytesToEncrypt =
+    compression === ENCRYPTED_HTML_COMPRESSION ? await gzipBytes(plaintextBytes) : plaintextBytes;
   const ciphertext = new Uint8Array(
     await globalThis.crypto.subtle.encrypt(
       { name: "AES-CBC", iv: toArrayBuffer(iv) },
       aesKey,
-      toArrayBuffer(new TextEncoder().encode(html))
+      toArrayBuffer(bytesToEncrypt)
     )
   );
   const macKey = await importHmacKey(macKeyBytes, "sign");
@@ -250,6 +298,7 @@ export async function createEncryptedHtmlPayload(
     payload: parseEncryptedHtmlPayload({
       version: ENCRYPTED_HTML_VERSION,
       alg: ENCRYPTED_HTML_ALGORITHM,
+      ...(compression ? { compression } : {}),
       ...(options.title ? { title: options.title } : {}),
       ...(options.filename ? { filename: options.filename } : {}),
       iv: encodeBase64Url(iv),

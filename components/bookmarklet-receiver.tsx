@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ENCRYPTED_HTML_ALGORITHM,
+  ENCRYPTED_HTML_COMPRESSION,
   ENCRYPTED_HTML_KEY_BASE64URL_LENGTH,
   ENCRYPTED_HTML_VERSION,
 } from "@/lib/encrypted-html";
@@ -20,6 +21,7 @@ type ReceiverState =
 type SnapshotPayload = {
   version: typeof ENCRYPTED_HTML_VERSION;
   alg: typeof ENCRYPTED_HTML_ALGORITHM;
+  compression?: typeof ENCRYPTED_HTML_COMPRESSION;
   title?: string;
   filename?: string;
   iv: string;
@@ -53,6 +55,13 @@ function parseSnapshotPayload(value: unknown): SnapshotPayload {
   if (!KEY_RE.test(key)) {
     throw new Error("Snapshot key is invalid.");
   }
+  if (
+    "compression" in record &&
+    record.compression !== undefined &&
+    record.compression !== ENCRYPTED_HTML_COMPRESSION
+  ) {
+    throw new Error("Snapshot compression is unsupported.");
+  }
 
   const title =
     typeof record.title === "string" && record.title.trim()
@@ -66,6 +75,9 @@ function parseSnapshotPayload(value: unknown): SnapshotPayload {
   return {
     version: ENCRYPTED_HTML_VERSION,
     alg: ENCRYPTED_HTML_ALGORITHM,
+    ...(record.compression === ENCRYPTED_HTML_COMPRESSION
+      ? { compression: ENCRYPTED_HTML_COMPRESSION }
+      : {}),
     ...(title ? { title } : {}),
     ...(filename ? { filename } : {}),
     iv: expectString(record, "iv"),
@@ -88,6 +100,7 @@ async function uploadSnapshot(payload: SnapshotPayload): Promise<string> {
   const form = new FormData();
   form.set("version", String(payload.version));
   form.set("alg", payload.alg);
+  if (payload.compression) form.set("compression", payload.compression);
   if (payload.title) form.set("title", payload.title);
   if (payload.filename) form.set("filename", payload.filename);
   form.set("iv", payload.iv);

@@ -9,7 +9,7 @@ The human should be able to say:
 Agent flow:
 
 1. Generate exactly one self-contained HTML file.
-2. Encrypt it locally. Never send plaintext or the key to askhuman.app.
+2. Compress it with gzip, then encrypt it locally. Never send plaintext or the key to askhuman.app.
 3. POST only encrypted multipart form fields to https://askhuman.app/upload.
 4. Append the local key as #k=... before sharing the URL with the human.
    The fragment key is 64 random bytes encoded as 86 base64url characters.
@@ -18,6 +18,7 @@ Required multipart form fields:
 
   version=1
   alg=aes-256-cbc+hmac-sha256
+  compression=gzip
   iv=<base64url IV>
   ciphertext=<base64url ciphertext>
   mac=<base64url HMAC>
@@ -53,6 +54,7 @@ OpenSSL + curl recipe:
   WORKDIR="$(mktemp -d)"
   KEY_BIN="$WORKDIR/key.bin"
   IV_BIN="$WORKDIR/iv.bin"
+  PLAINTEXT_BIN="$WORKDIR/html.gz"
   CIPHERTEXT_BIN="$WORKDIR/ciphertext.bin"
   MAC_BIN="$WORKDIR/mac.bin"
   IV_B64_FILE="$WORKDIR/iv.b64"
@@ -67,8 +69,9 @@ OpenSSL + curl recipe:
 
   openssl rand 16 > "$IV_BIN"
   IV_HEX="$(od -An -tx1 -v "$IV_BIN" | tr -d ' \n')"
+  gzip -n -c "$HTML_FILE" > "$PLAINTEXT_BIN"
   openssl enc -aes-256-cbc -K "$AES_KEY" -iv "$IV_HEX" -nosalt \
-    -in "$HTML_FILE" -out "$CIPHERTEXT_BIN"
+    -in "$PLAINTEXT_BIN" -out "$CIPHERTEXT_BIN"
   cat "$IV_BIN" "$CIPHERTEXT_BIN" | \
     openssl dgst -sha256 -mac HMAC -macopt "hexkey:$MAC_KEY" -binary > "$MAC_BIN"
 
@@ -79,6 +82,7 @@ OpenSSL + curl recipe:
   URL="$(curl -s -X POST https://askhuman.app/upload \
     --form-string "version=1" \
     --form-string "alg=aes-256-cbc+hmac-sha256" \
+    --form-string "compression=gzip" \
     --form-string "title=$TITLE" \
     --form-string "filename=$FILENAME" \
     -F "iv=<$IV_B64_FILE" \

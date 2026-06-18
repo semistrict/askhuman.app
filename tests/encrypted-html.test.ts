@@ -3,6 +3,7 @@ import {
   createEncryptedHtmlPayload,
   decryptEncryptedHtmlPayload,
   ENCRYPTED_HTML_ALGORITHM,
+  ENCRYPTED_HTML_COMPRESSION,
   ENCRYPTED_HTML_KEY_BASE64URL_LENGTH,
   ENCRYPTED_HTML_VERSION,
   parseEncryptedHtmlPayload,
@@ -30,10 +31,21 @@ describe("encrypted HTML payloads", () => {
 
     expect(payload.version).toBe(ENCRYPTED_HTML_VERSION);
     expect(payload.alg).toBe(ENCRYPTED_HTML_ALGORITHM);
+    expect(payload.compression).toBe(ENCRYPTED_HTML_COMPRESSION);
     expect(payload.title).toBe("Agent Page");
     expect(payload.filename).toBe("page.html");
     expect(key).toMatch(/^[A-Za-z0-9_-]{86}$/);
     expect(parseUrlKey(key)).toHaveLength(64);
+    await expect(decryptEncryptedHtmlPayload(payload, key)).resolves.toBe(HTML);
+  });
+
+  it("can still decrypt an uncompressed payload", async () => {
+    const { payload, key } = await createEncryptedHtmlPayload(HTML, {
+      compression: false,
+      filename: "page.html",
+    });
+
+    expect(payload.compression).toBeUndefined();
     await expect(decryptEncryptedHtmlPayload(payload, key)).resolves.toBe(HTML);
   });
 
@@ -86,5 +98,15 @@ describe("encrypted HTML payloads", () => {
         mac: "abc",
       })
     ).toThrow("Unsupported");
+    expect(() =>
+      parseEncryptedHtmlPayload({
+        version: ENCRYPTED_HTML_VERSION,
+        alg: ENCRYPTED_HTML_ALGORITHM,
+        compression: "br",
+        iv: "abc",
+        ciphertext: "abc",
+        mac: "abc",
+      })
+    ).toThrow("compression");
   });
 });

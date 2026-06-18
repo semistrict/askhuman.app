@@ -16,7 +16,16 @@ type ErrorBody = { error: string };
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_FIELDS = new Set(["version", "alg", "title", "filename", "iv", "ciphertext", "mac"]);
+const ALLOWED_FIELDS = new Set([
+  "version",
+  "alg",
+  "compression",
+  "title",
+  "filename",
+  "iv",
+  "ciphertext",
+  "mac",
+]);
 const FORBIDDEN_FIELDS = new Set(["key", "html", "plaintext", "content"]);
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",

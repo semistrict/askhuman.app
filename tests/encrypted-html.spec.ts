@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   createEncryptedHtmlPayload,
   ENCRYPTED_HTML_ALGORITHM,
+  ENCRYPTED_HTML_COMPRESSION,
   ENCRYPTED_HTML_KEY_BASE64URL_LENGTH,
   ENCRYPTED_HTML_VERSION,
 } from "../lib/encrypted-html";
@@ -31,6 +32,7 @@ const AGENT_HTML = `<!doctype html>
 function encryptedPayloadToMultipart(payload: {
   version: number;
   alg: string;
+  compression?: string;
   title?: string;
   filename?: string;
   iv: string;
@@ -40,6 +42,7 @@ function encryptedPayloadToMultipart(payload: {
   return {
     version: String(payload.version),
     alg: payload.alg,
+    ...(payload.compression ? { compression: payload.compression } : {}),
     ...(payload.title ? { title: payload.title } : {}),
     ...(payload.filename ? { filename: payload.filename } : {}),
     iv: payload.iv,
@@ -145,6 +148,7 @@ test.describe("Encrypted HTML sharing", () => {
 
     expect(text).toContain("agent-generated HTML file");
     expect(text).toContain("Required multipart form fields");
+    expect(text).toContain("compression=gzip");
     expect(text).toContain("title=<browser/link-preview title>");
     expect(text).toContain("HTML expectations");
     expect(text).toContain("Single file: inline all CSS and JS");
@@ -157,6 +161,7 @@ test.describe("Encrypted HTML sharing", () => {
     expect(text).toContain("--form-string \"version=1\"");
     expect(text).toContain("openssl rand 64 > \"$KEY_BIN\"");
     expect(text).toContain("KEY_B64");
+    expect(text).toContain("gzip -n -c");
     expect(text).toContain("/upload");
     expect(text).toContain("#k=");
     expect(text).not.toContain("Content-Type: application/json");
@@ -239,13 +244,57 @@ test.describe("Encrypted HTML sharing", () => {
     expect(js).toContain("crypto.subtle");
     expect(js).toContain("AES-CBC");
     expect(js).toContain("HMAC");
+    expect(js).toContain("CompressionStream");
+    expect(js).toContain('compression: "gzip"');
     expect(js).toContain("/bookmarklet-receiver");
     expect(js).toContain("postMessage");
     expect(js).toContain("askhuman.bookmarklet.snapshot");
     expect(js).toContain("document.documentElement.cloneNode(true)");
+    expect(js).toContain("getComputedStyle");
+    expect(js).toContain("readableStylesheetCss");
     expect(js).not.toContain('createElement("script")');
     expect(js).not.toContain("/review");
     expect(js).not.toContain("/playground");
+  });
+
+  test("bookmarklet serializes a styled page for offline viewing", async ({ page }) => {
+    await page.goto("/");
+    const bookmarklet = page.getByRole("link", { name: "askhuman snapshot" });
+    await expect.poll(async () => await bookmarklet.getAttribute("href")).toContain("javascript:");
+    const href = (await bookmarklet.getAttribute("href")) || "";
+    expect(href).toMatch(/^javascript:/);
+
+    await page.setContent(`<!doctype html>
+      <html>
+        <head>
+          <title>Styled Offline Page</title>
+          <style>
+            body { margin: 0; background: rgb(246, 247, 248); }
+            #styled { color: rgb(12, 34, 56); font-size: 31px; }
+          </style>
+          <script>document.documentElement.dataset.sourceScript = "ran";</script>
+        </head>
+        <body>
+          <a id="bookmarklet-runner">run</a>
+          <h1 id="styled">Styled Snapshot</h1>
+          <input id="field" value="captured value">
+        </body>
+      </html>`);
+    await page.locator("#bookmarklet-runner").evaluate((node, href) => {
+      node.setAttribute("href", href);
+    }, href);
+
+    const popupPromise = page.waitForEvent("popup");
+    await page.locator("#bookmarklet-runner").click();
+    const popup = await popupPromise;
+    await popup.waitForURL((url) => url.pathname.startsWith("/s/") && url.hash.startsWith("#k="));
+
+    const frame = popup.frameLocator("iframe");
+    await expect(frame.locator("#styled")).toHaveText("Styled Snapshot");
+    await expect(frame.locator("#styled")).toHaveCSS("color", "rgb(12, 34, 56)");
+    await expect(frame.locator("#styled")).toHaveCSS("font-size", "31px");
+    await expect(frame.locator("#field")).toHaveValue("captured value");
+    await expect(frame.locator("script")).toHaveCount(0);
   });
 
   test("bookmarklet receiver uploads posted ciphertext and redirects to a keyed share", async ({
@@ -255,6 +304,7 @@ test.describe("Encrypted HTML sharing", () => {
       filename: "receiver-preview.html",
       title: "Receiver Preview",
     });
+    expect(payload.compression).toBe(ENCRYPTED_HTML_COMPRESSION);
 
     await page.goto("/bookmarklet-receiver");
     await expect(page.getByText("Waiting For Snapshot")).toBeVisible();
@@ -343,6 +393,20 @@ test.describe("Encrypted HTML sharing", () => {
       },
     });
     expect(unsupported.status()).toBe(400);
+
+    const unsupportedCompression = await request.post("/upload", {
+      headers: JSON_ACCEPT,
+      multipart: {
+        version: String(ENCRYPTED_HTML_VERSION),
+        alg: ENCRYPTED_HTML_ALGORITHM,
+        compression: "br",
+        iv: "abc",
+        ciphertext: "abc",
+        mac: "abc",
+      },
+    });
+    expect(unsupportedCompression.status()).toBe(400);
+    expect((await unsupportedCompression.json()).error).toContain("compression");
   });
 
   test("legacy endpoints are not supported", async ({ request }) => {
