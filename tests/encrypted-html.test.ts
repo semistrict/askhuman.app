@@ -23,10 +23,14 @@ function flipLastBase64UrlChar(value: string): string {
 
 describe("encrypted HTML payloads", () => {
   it("encrypts and decrypts a single HTML document", async () => {
-    const { payload, key } = await createEncryptedHtmlPayload(HTML, { filename: "page.html" });
+    const { payload, key } = await createEncryptedHtmlPayload(HTML, {
+      filename: "page.html",
+      title: "Agent Page",
+    });
 
     expect(payload.version).toBe(ENCRYPTED_HTML_VERSION);
     expect(payload.alg).toBe(ENCRYPTED_HTML_ALGORITHM);
+    expect(payload.title).toBe("Agent Page");
     expect(payload.filename).toBe("page.html");
     expect(key).toMatch(/^[A-Za-z0-9_-]{86}$/);
     expect(parseUrlKey(key)).toHaveLength(64);
@@ -53,6 +57,16 @@ describe("encrypted HTML payloads", () => {
     expect(() => parseUrlKey("abc")).toThrow("86-character base64url");
     expect(() => parseUrlKey("0".repeat(128))).toThrow("86-character base64url");
     expect(ENCRYPTED_HTML_KEY_BASE64URL_LENGTH).toBe(86);
+    expect(() =>
+      parseEncryptedHtmlPayload({
+        version: ENCRYPTED_HTML_VERSION,
+        alg: ENCRYPTED_HTML_ALGORITHM,
+        title: "x".repeat(141),
+        iv: "abc",
+        ciphertext: "abc",
+        mac: "abc",
+      })
+    ).toThrow("title");
     expect(() =>
       parseEncryptedHtmlPayload({
         version: ENCRYPTED_HTML_VERSION,

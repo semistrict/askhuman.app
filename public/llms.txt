@@ -16,7 +16,7 @@ Agent flow:
 
 Required payload:
 
-  {"version":1,"alg":"aes-256-cbc+hmac-sha256","iv":"...","ciphertext":"...","mac":"..."}
+  {"version":1,"alg":"aes-256-cbc+hmac-sha256","title":"optional browser title","filename":"optional.html","iv":"...","ciphertext":"...","mac":"..."}
 
 OpenSSL + curl recipe:
 
@@ -57,4 +57,5 @@ OpenSSL + curl recipe:
   printf '%s#k=%s\n' "$URL" "$KEY_B64"
 
 Give the final printed URL to the human. The #k= fragment is not sent to the server.
+Optional title and filename metadata are visible to the server; keep them generic if sensitive.
 Links expire after 7 days.

@@ -16,6 +16,7 @@ const KEY_BASE64_URL_RE = /^[A-Za-z0-9_-]{86}$/;
 export type EncryptedHtmlPayload = {
   version: typeof ENCRYPTED_HTML_VERSION;
   alg: typeof ENCRYPTED_HTML_ALGORITHM;
+  title?: string;
   filename?: string;
   iv: string;
   ciphertext: string;
@@ -109,6 +110,10 @@ export function parseEncryptedHtmlPayload(value: unknown): EncryptedHtmlPayload 
     typeof record.filename === "string" && record.filename.trim()
       ? validateFilename(record.filename.trim())
       : undefined;
+  const title =
+    typeof record.title === "string" && record.title.trim()
+      ? validateTitle(record.title)
+      : undefined;
   const iv = expectBase64UrlField(record.iv, "iv");
   const ciphertext = expectBase64UrlField(record.ciphertext, "ciphertext");
   const mac = expectBase64UrlField(record.mac, "mac");
@@ -126,6 +131,7 @@ export function parseEncryptedHtmlPayload(value: unknown): EncryptedHtmlPayload 
   return {
     version: ENCRYPTED_HTML_VERSION,
     alg: ENCRYPTED_HTML_ALGORITHM,
+    ...(title ? { title } : {}),
     ...(filename ? { filename } : {}),
     iv,
     ciphertext,
@@ -138,6 +144,14 @@ function validateFilename(filename: string): string {
     throw new Error("filename must be a short file name, not a path.");
   }
   return filename;
+}
+
+function validateTitle(title: string): string {
+  const normalized = title.replace(/\s+/g, " ").trim();
+  if (normalized.length > 140) {
+    throw new Error("title must be 140 characters or fewer.");
+  }
+  return normalized;
 }
 
 export function parseUrlKey(key: string): Uint8Array {
@@ -207,7 +221,7 @@ export async function decryptEncryptedHtmlPayload(
 
 export async function createEncryptedHtmlPayload(
   html: string,
-  options: { filename?: string; key?: string } = {}
+  options: { filename?: string; key?: string; title?: string } = {}
 ): Promise<EncryptedHtmlBundle> {
   const key = options.key ?? encodeBase64Url(globalThis.crypto.getRandomValues(new Uint8Array(URL_KEY_BYTES)));
   const keyBytes = parseUrlKey(key);
@@ -236,6 +250,7 @@ export async function createEncryptedHtmlPayload(
     payload: parseEncryptedHtmlPayload({
       version: ENCRYPTED_HTML_VERSION,
       alg: ENCRYPTED_HTML_ALGORITHM,
+      ...(options.title ? { title: options.title } : {}),
       ...(options.filename ? { filename: options.filename } : {}),
       iv: encodeBase64Url(iv),
       ciphertext: encodeBase64Url(ciphertext),

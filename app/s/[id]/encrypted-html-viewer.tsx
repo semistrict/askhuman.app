@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { EncryptedHtmlPayload } from "@/lib/encrypted-html";
 import { decryptEncryptedHtmlPayload } from "@/lib/encrypted-html";
@@ -66,7 +67,14 @@ function StatusMessage({ title, children }: { title: string; children: ReactNode
 
 export function EncryptedHtmlViewer({ shareId, payload, loadError }: Props) {
   const [state, setState] = useState<ViewerState>({ status: "loading" });
-  const label = useMemo(() => payload?.filename || `share ${shareId}`, [payload?.filename, shareId]);
+  const label = useMemo(
+    () => payload?.title || payload?.filename || `share ${shareId}`,
+    [payload?.filename, payload?.title, shareId]
+  );
+
+  useEffect(() => {
+    document.title = `${label} | askhuman.app`;
+  }, [label]);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,10 +121,17 @@ export function EncryptedHtmlViewer({ shareId, payload, loadError }: Props) {
     <div className="flex h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 font-mono text-[11px] uppercase">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="font-semibold">askhuman.app</span>
+          <Link
+            href="/"
+            className="font-semibold underline-offset-4 hover:text-[var(--accent)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)]"
+          >
+            askhuman.app
+          </Link>
           <span className="truncate text-[var(--quiet-foreground)]">{label}</span>
         </div>
-        <span className="shrink-0 text-[var(--accent)]">encrypted</span>
+        <span className="shrink-0 text-[var(--accent)]">
+          <span aria-hidden="true">🔒</span> end-to-end encrypted
+        </span>
       </header>
 
       {state.status === "loading" && (
@@ -136,6 +151,7 @@ export function EncryptedHtmlViewer({ shareId, payload, loadError }: Props) {
           title={label}
           srcDoc={state.html}
           sandbox="allow-scripts allow-forms"
+          allow="clipboard-write"
           referrerPolicy="no-referrer"
           className="min-h-0 flex-1 border-0 bg-[var(--iframe-background)]"
           {...{ csp: IFRAME_CSP }}

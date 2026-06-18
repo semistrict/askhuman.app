@@ -35,6 +35,7 @@ async function uploadEncryptedHtml(request: {
 }) {
   const { payload, key } = await createEncryptedHtmlPayload(AGENT_HTML, {
     filename: "agent-report.html",
+    title: "Human Preview",
   });
   const res = await request.post("/upload", {
     headers: JSON_ACCEPT,
@@ -57,7 +58,12 @@ test.describe("Encrypted HTML sharing", () => {
     expect(key).toHaveLength(ENCRYPTED_HTML_KEY_BASE64URL_LENGTH);
     await page.goto(`/s/${id}#k=${key}`);
 
-    await expect(page.getByText("askhuman.app")).toBeVisible();
+    await expect(page.getByRole("link", { name: "askhuman.app" })).toHaveAttribute("href", "/");
+    await expect(page.getByText("end-to-end encrypted")).toBeVisible();
+    await expect(page).toHaveTitle("Human Preview | askhuman.app");
+    await expect(page.getByText("Human Preview")).toBeVisible();
+    await expect(page.locator("iframe")).toHaveAttribute("allow", "clipboard-write");
+    await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-forms");
     const frame = page.frameLocator("iframe");
     await expect(frame.locator("#title")).toHaveText("Agent Generated HTML");
     await expect(frame.locator("body")).toHaveAttribute("data-ready", "yes");
@@ -100,6 +106,7 @@ test.describe("Encrypted HTML sharing", () => {
     const text = await res.text();
 
     expect(text).toContain("agent-generated HTML file");
+    expect(text).toContain("\"title\":\"optional browser title\"");
     expect(text).toContain("openssl rand 64 > \"$KEY_BIN\"");
     expect(text).toContain("KEY_B64");
     expect(text).toContain("/upload");
