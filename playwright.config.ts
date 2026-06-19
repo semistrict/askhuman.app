@@ -9,7 +9,7 @@ export default defineConfig({
     baseURL: "http://localhost:15032",
   },
   webServer: {
-    command: "pnpm run dev:vinext",
+    command: "pnpm run dev",
     port: 15032,
     reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
   },

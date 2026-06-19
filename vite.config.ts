@@ -1,13 +1,26 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
-import vinext from "vinext";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  server: {
+    port: 15032,
+  },
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL(".", import.meta.url)),
+    },
+  },
   plugins: [
-    vinext(),
     cloudflare({
       persistState: false,
-      viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
+      viteEnvironment: { name: "ssr" },
     }),
+    tailwindcss(),
+    tanstackStart(),
+    react(),
   ],
 });

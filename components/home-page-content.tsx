@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { buildInlineBookmarkletHref } from "@/lib/bookmarklet-code";
 

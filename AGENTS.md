@@ -1,5 +1,7 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+<!-- BEGIN:tanstack-start-agent-rules -->
+# This app runs on TanStack Start and Cloudflare Workers
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+TanStack Start code is isomorphic by default. Keep Workers-only bindings and other server-only dependencies behind `createServerFn`, server route handlers, or the custom Worker entrypoint.
+
+For routing, server functions, Worker entrypoints, or deployment configuration, check the current TanStack Start and Cloudflare Workers docs before changing code.
+<!-- END:tanstack-start-agent-rules -->
