@@ -9,7 +9,7 @@ The human should be able to say:
 Agent flow:
 
 1. Generate exactly one self-contained HTML file.
-2. Compress it with gzip, then encrypt it locally. Never send plaintext or the key to askhuman.app.
+2. Compress the HTML file with gzip before encrypting it locally. Never send plaintext or the key to askhuman.app.
 3. POST only encrypted multipart form fields to https://askhuman.app/upload.
 4. Append the local key as #k=... before sharing the URL with the human.
    The fragment key is 64 random bytes encoded as 86 base64url characters.
@@ -31,18 +31,19 @@ Optional multipart form fields:
 Upload limits:
 
 - Request body: 15 MiB max multipart form; ciphertext field: 10 MiB max decoded bytes.
-- Per Cloudflare-detected client IP: 20 upload attempts per minute.
-- Per Cloudflare-detected client IP: 100 successful uploads and 100 MiB uploaded per day.
-- If /upload returns 429, wait for the Retry-After seconds before trying again.
+- Uploads are abuse-limited per client. If /upload returns 429, retry later.
 
 HTML expectations:
 
-- Single file: inline all CSS and JS. Do not depend on CDNs, remote fonts, or external APIs.
+- Single HTML file: inline app-specific CSS, JS, data, and private assets.
+- External JS/CSS/fonts may use only the viewer allowlist: jsDelivr, unpkg, cdnjs, esm.sh, Skypack, JSPM, Google AJAX CDN, jQuery CDN, Tailwind CDN, Google Fonts, and Google Charts.
+- Google Charts may be loaded from https://www.gstatic.com/charts/loader.js.
+- Google Fonts may use stylesheets from https://fonts.googleapis.com and font files from https://fonts.gstatic.com.
 - Make it useful on first load with sensible defaults and a clear title.
 - If the page is interactive, every control should update the visible preview immediately.
 - For broad option spaces, include 3-5 named presets.
 - Design for a sandboxed iframe using the full viewport; keep primary controls and output visible without awkward scrolling.
-- Copy buttons are allowed, but network access is blocked, so keep assets and data self-contained.
+- Copy buttons are allowed. All other network access is blocked, so keep app data self-contained.
 
 OpenSSL + curl recipe:
 
@@ -93,4 +94,4 @@ OpenSSL + curl recipe:
 
 Give the final printed URL to the human. The #k= fragment is not sent to the server.
 Optional title and filename metadata are visible to the server; keep them generic if sensitive.
-Links expire after 7 days.
+Links expire after 7 days without access; each access renews the encrypted payload for another 7 days.

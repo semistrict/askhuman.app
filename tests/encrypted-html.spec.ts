@@ -89,6 +89,11 @@ test.describe("Encrypted HTML sharing", () => {
     await expect(page.locator("header").getByText("Human Preview", { exact: true })).toBeVisible();
     await expect(page.locator("iframe")).toHaveAttribute("allow", "clipboard-write");
     await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-forms");
+    await expect(page.locator("iframe")).toHaveAttribute("csp", /https:\/\/cdn\.jsdelivr\.net/);
+    await expect(page.locator("iframe")).toHaveAttribute("csp", /https:\/\/fonts\.googleapis\.com/);
+    await expect(page.locator("iframe")).toHaveAttribute("csp", /https:\/\/fonts\.gstatic\.com/);
+    await expect(page.locator("iframe")).toHaveAttribute("csp", /https:\/\/www\.gstatic\.com/);
+    await expect(page.locator("iframe")).toHaveAttribute("csp", /https:\/\/chart\.googleapis\.com/);
     const frame = page.frameLocator("iframe");
     await expect(frame.locator("#title")).toHaveText("Agent Generated HTML");
     await expect(frame.locator("body")).toHaveAttribute("data-ready", "yes");
@@ -148,21 +153,31 @@ test.describe("Encrypted HTML sharing", () => {
     const text = await res.text();
 
     expect(text).toContain("agent-generated HTML file");
+    expect(text).toContain("Compress the HTML file with gzip before encrypting it locally");
     expect(text).toContain("Required multipart form fields");
     expect(text).toContain("compression=gzip");
     expect(text).toContain("title=<browser/link-preview title>");
     expect(text).toContain("HTML expectations");
-    expect(text).toContain("Single file: inline all CSS and JS");
+    expect(text).toContain("Single HTML file");
+    expect(text).toContain("viewer allowlist");
+    expect(text).toContain("Google Charts");
+    expect(text).toContain("https://www.gstatic.com/charts/loader.js");
+    expect(text).toContain("Google Fonts");
     expect(text).toContain("every control should update the visible preview immediately");
     expect(text).toContain("3-5 named presets");
-    expect(text).toContain("network access is blocked");
+    expect(text).toContain("All other network access is blocked");
+    expect(text).not.toContain("Do not depend on CDNs");
     expect(text).toContain("Upload limits");
-    expect(text).toContain("100 successful uploads and 100 MiB uploaded per day");
-    expect(text).toContain("Retry-After");
+    expect(text).toContain("Uploads are abuse-limited per client");
+    expect(text).not.toContain("upload attempts per minute");
+    expect(text).not.toContain("successful uploads");
+    expect(text).not.toContain("uploaded per day");
     expect(text).toContain("--form-string \"version=1\"");
     expect(text).toContain("openssl rand 64 > \"$KEY_BIN\"");
     expect(text).toContain("KEY_B64");
     expect(text).toContain("gzip -n -c");
+    expect(text).toContain("OpenSSL + curl recipe");
+    expect(text).not.toContain("PowerShell + .NET recipe");
     expect(text).toContain("/upload");
     expect(text).toContain("#k=");
     expect(text).not.toContain("Content-Type: application/json");
@@ -173,6 +188,35 @@ test.describe("Encrypted HTML sharing", () => {
     expect(text).not.toContain("/playground");
     expect(text).not.toContain("/share");
     expect(text).not.toContain("postMessage");
+  });
+
+  test("root curl instructions use PowerShell and .NET for Windows callers", async ({
+    request,
+  }) => {
+    const windowsPowerShell = await request.get("/", {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.22621.2506",
+      },
+    });
+    expect(windowsPowerShell.status()).toBe(200);
+    expect(windowsPowerShell.headers()["content-type"]).toContain("text/plain");
+    const text = await windowsPowerShell.text();
+
+    expect(text).toContain("PowerShell + .NET recipe for Windows");
+    expect(text).toContain("Add-Type -AssemblyName System.Net.Http");
+    expect(text).toContain("[IO.Compression.GZipStream]");
+    expect(text).toContain("[Security.Cryptography.Aes]::Create()");
+    expect(text).toContain("[Security.Cryptography.HMACSHA256]");
+    expect(text).toContain("[System.Net.Http.MultipartFormDataContent]");
+    expect(text).toContain('Add-Field "compression" "gzip"');
+    expect(text).toContain('"$BaseUrl/upload"');
+    expect(text).not.toContain("OpenSSL + curl recipe");
+
+    const windowsCurl = await request.get("/", {
+      headers: { "User-Agent": "curl/8.7.1 (Windows)" },
+    });
+    expect(await windowsCurl.text()).toContain("PowerShell + .NET recipe for Windows");
   });
 
   test("browser home points humans to the root curl flow", async ({ page }) => {

@@ -5,15 +5,60 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { EncryptedHtmlPayload } from "@/lib/encrypted-html";
 import { decryptEncryptedHtmlPayload } from "@/lib/encrypted-html";
 
+const SCRIPT_SOURCES = [
+  "'unsafe-inline'",
+  "https://cdn.jsdelivr.net",
+  "https://unpkg.com",
+  "https://cdnjs.cloudflare.com",
+  "https://esm.sh",
+  "https://cdn.skypack.dev",
+  "https://ga.jspm.io",
+  "https://ajax.googleapis.com",
+  "https://code.jquery.com",
+  "https://cdn.tailwindcss.com",
+  "https://www.gstatic.com",
+  "https://www.google.com",
+];
+const STYLE_SOURCES = [
+  "'unsafe-inline'",
+  "https://cdn.jsdelivr.net",
+  "https://unpkg.com",
+  "https://cdnjs.cloudflare.com",
+  "https://fonts.googleapis.com",
+  "https://www.gstatic.com",
+  "https://www.google.com",
+];
+const FONT_SOURCES = [
+  "data:",
+  "https://fonts.gstatic.com",
+  "https://cdn.jsdelivr.net",
+  "https://unpkg.com",
+  "https://cdnjs.cloudflare.com",
+];
+const IMAGE_SOURCES = [
+  "data:",
+  "blob:",
+  "https://www.gstatic.com",
+  "https://*.gstatic.com",
+  "https://www.google.com",
+  "https://chart.googleapis.com",
+  "https://*.googleusercontent.com",
+];
+const CONNECT_SOURCES = [
+  "https://www.gstatic.com",
+  "https://www.google.com",
+  "https://chart.googleapis.com",
+];
+
 const IFRAME_CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-inline'",
-  "style-src 'unsafe-inline'",
-  "img-src data: blob:",
-  "font-src data:",
+  `script-src ${SCRIPT_SOURCES.join(" ")}`,
+  `style-src ${STYLE_SOURCES.join(" ")}`,
+  `img-src ${IMAGE_SOURCES.join(" ")}`,
+  `font-src ${FONT_SOURCES.join(" ")}`,
   "media-src data: blob:",
   "frame-src 'none'",
-  "connect-src 'none'",
+  `connect-src ${CONNECT_SOURCES.join(" ")}`,
   "base-uri 'none'",
   "form-action 'none'",
 ].join("; ");

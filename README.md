@@ -23,9 +23,10 @@ The root response tells the agent to generate a self-contained HTML file, compre
 - The key is 64 random bytes encoded as 86 unpadded base64url characters.
 - The key lives only in the URL fragment, so it is not sent to the server.
 - The browser verifies HMAC-SHA256, decrypts with AES-256-CBC, decompresses gzip payloads, and renders the HTML in a sandboxed iframe.
+- The iframe allows inline code plus a curated external-resource allowlist for common JS CDNs, Google Fonts, and Google Charts; other network access remains blocked.
 - Uploads are capped at 15 MiB per multipart request and 10 MiB decoded ciphertext.
-- Per Cloudflare-detected client IP, uploads are limited to 20 attempts per minute, 100 successful uploads per day, and 100 MiB uploaded per day.
-- Links expire after 7 days.
+- Uploads are abuse-limited per client.
+- Links expire after 7 days without access; each access renews the encrypted payload for another 7 days.
 
 ## Development
 

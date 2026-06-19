@@ -7,11 +7,11 @@
  */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { buildRootPlainText } from "@/lib/root-plain";
+import { buildRootPlainText, detectRootPlainRecipe } from "@/lib/root-plain";
 
 async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
-  const text = buildRootPlainText(base);
+  const text = buildRootPlainText(base, { recipe: detectRootPlainRecipe(request) });
 
   return new Response(text.endsWith("\n") ? text : `${text}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -23,6 +23,7 @@ function shouldServePlainRoot(request: Request): boolean {
   const signatureAgent = request.headers.get("signature-agent") || "";
 
   if (/^curl\//i.test(userAgent)) return true;
+  if (detectRootPlainRecipe(request) === "powershell") return true;
   if (signatureAgent.trim() === "https://chatgpt.com") return true;
   if (/\bClaude-User\b/i.test(userAgent)) return true;
   if (/\bChatGPT-User\b/i.test(userAgent)) return true;
