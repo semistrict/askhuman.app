@@ -1,11 +1,11 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "askhuman-app",
-	"compatibility_date": "2026-04-05",
+	"compatibility_date": "2026-06-19",
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	"main": "./worker/index.ts",
+	"main": "src/server.ts",
 	"workers_dev": false,
 	"routes": [
 		{
@@ -17,14 +17,6 @@
 			"custom_domain": true
 		}
 	],
-	"assets": {
-		"directory": "dist/client",
-		"not_found_handling": "none",
-		"binding": "ASSETS"
-	},
-	"images": {
-		"binding": "IMAGES"
-	},
 	"kv_namespaces": [
 		{
 			"binding": "SHARE_KEYS",

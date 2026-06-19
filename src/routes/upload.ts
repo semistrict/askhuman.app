@@ -1,5 +1,5 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { createCompactId } from "@/lib/compact-id";
-import { appEnv } from "@/lib/cloudflare-env";
 import {
   ENCRYPTED_HTML_TTL_SECONDS,
   formatByteSize,
@@ -14,8 +14,6 @@ import {
 } from "@/lib/upload-limits";
 
 type ErrorBody = { error: string };
-
-export const dynamic = "force-dynamic";
 
 const ALLOWED_FIELDS = new Set([
   "version",
@@ -82,6 +80,7 @@ function readContentLength(request: Request): number | null {
 }
 
 async function enforceUploadAttemptRateLimit(actorKey: string): Promise<boolean> {
+  const { appEnv } = await import("@/lib/cloudflare-env");
   const limiter = appEnv.UPLOAD_RATE_LIMITER;
   if (!limiter) return true;
 
@@ -139,7 +138,8 @@ async function formDataToPayloadInput(formData: FormData): Promise<Record<string
   return result;
 }
 
-export async function POST(request: Request) {
+async function handleUploadPost(request: Request) {
+  const { appEnv } = await import("@/lib/cloudflare-env");
   const contentType = request.headers.get("content-type") || "";
   if (!/\bmultipart\/form-data\b/i.test(contentType)) {
     return errorResponse(request, "Upload encrypted fields with multipart/form-data.", 415);
@@ -216,16 +216,20 @@ export async function POST(request: Request) {
   return textResponse(url);
 }
 
-export async function OPTIONS() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      ...CORS_HEADERS,
-      "Cache-Control": "no-store",
+export const Route = createFileRoute("/upload")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => handleUploadPost(request),
+      OPTIONS: async () =>
+        new Response(null, {
+          status: 204,
+          headers: {
+            ...CORS_HEADERS,
+            "Cache-Control": "no-store",
+          },
+        }),
+      GET: async ({ request }) =>
+        errorResponse(request, "Use POST /upload with encrypted multipart form fields.", 405),
     },
-  });
-}
-
-export async function GET(request: Request) {
-  return errorResponse(request, "Use POST /upload with encrypted multipart form fields.", 405);
-}
+  },
+});

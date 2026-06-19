@@ -1,6 +1,3 @@
-"use client";
-
-import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { EncryptedHtmlPayload } from "@/lib/encrypted-html";
 import { decryptEncryptedHtmlPayload } from "@/lib/encrypted-html";
@@ -101,9 +98,7 @@ function StatusMessage({ title, children }: { title: string; children: ReactNode
   return (
     <main className="grid min-h-0 flex-1 place-items-center bg-[var(--background)] px-6 text-[var(--foreground)]">
       <div className="max-w-md border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[8px_8px_0_var(--hard-shadow)]">
-        <h1 className="font-mono text-sm font-semibold uppercase">
-          {title}
-        </h1>
+        <h1 className="font-mono text-sm font-semibold uppercase">{title}</h1>
         <div className="mt-4 text-sm leading-6 text-[var(--muted-foreground)]">{children}</div>
       </div>
     </main>
@@ -168,12 +163,12 @@ export function EncryptedHtmlViewer({ shareId, payload, loadError }: Props) {
     <div className="flex h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 font-mono text-[11px] uppercase">
         <div className="flex min-w-0 items-center gap-3">
-          <Link
+          <a
             href="/"
             className="font-semibold underline-offset-4 hover:text-[var(--accent)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent)]"
           >
             askhuman.app
-          </Link>
+          </a>
           <span className="truncate text-[var(--quiet-foreground)]">{label}</span>
         </div>
         <span className="shrink-0 text-[var(--accent)]">

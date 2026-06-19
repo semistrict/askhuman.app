@@ -32,7 +32,7 @@ The root response tells the agent to generate a self-contained HTML file, compre
 
 ```bash
 pnpm install
-pnpm run dev:vinext    # local dev server on port 15032
+pnpm run dev    # local dev server on port 15032
 pnpm exec playwright test
 pnpm run test:unit
 pnpm run deploy
@@ -40,7 +40,7 @@ pnpm run deploy
 
 ## Runtime
 
-- **Framework:** vinext / Next.js on Cloudflare Workers
+- **Framework:** TanStack Start on Cloudflare Workers
 - **Storage:** Cloudflare KV for encrypted payloads and hashed per-client upload quota counters
 - **Abuse guardrails:** Cloudflare Rate Limiting binding plus KV daily upload quotas
 - **Public endpoints:** `GET /`, `POST /upload`, `GET /s/{id}`, `GET /llms.txt`
