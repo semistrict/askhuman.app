@@ -5,6 +5,7 @@ import {
   createRootRoute,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { NotFoundPage } from "@/components/not-found-page";
 import appCss from "@/src/styles/app.css?url";
 
 export const Route = createRootRoute({
@@ -39,6 +40,7 @@ export const Route = createRootRoute({
     ],
   }),
   component: Outlet,
+  notFoundComponent: NotFoundPage,
   shellComponent: RootDocument,
 });
 
