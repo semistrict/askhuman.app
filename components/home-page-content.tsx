@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { GriddedPanelBackdrop, GriddedPanelBadge } from "@/components/gridded-panel";
 import { buildInlineBookmarkletHref } from "@/lib/bookmarklet-code";
 
 const ROOT_COMMAND = "curl -s https://askhuman.app";
@@ -95,15 +96,19 @@ export function HomePageContent() {
   return (
     <main className="min-h-screen bg-[var(--background)] px-5 py-8 text-[var(--foreground)] sm:px-8">
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-5xl content-center gap-8 lg:grid-cols-[0.9fr_1.1fr]">
-        <section className="border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[8px_8px_0_var(--hard-shadow)]">
-          <p className="font-mono text-xs uppercase text-[var(--accent)]">askhuman.app</p>
-          <h1 className="mt-5 max-w-lg text-4xl font-medium leading-tight sm:text-5xl">
-            Encrypted HTML links for agent-made pages.
-          </h1>
-          <p className="mt-5 max-w-xl text-base leading-7 text-[var(--muted-foreground)]">
-            The server stores ciphertext for seven days. The browser gets the key from the URL
-            fragment and renders the decrypted single-file HTML in a sandbox.
-          </p>
+        <section className="relative grid min-h-[22rem] content-end overflow-hidden border border-[var(--border)] bg-[var(--surface)] p-6 pt-24 shadow-[8px_8px_0_var(--hard-shadow)] sm:min-h-[24rem]">
+          <GriddedPanelBackdrop />
+          <GriddedPanelBadge>encrypted handoff</GriddedPanelBadge>
+          <div className="relative z-10">
+            <p className="font-mono text-xs uppercase text-[var(--accent)]">askhuman.app</p>
+            <h1 className="mt-5 max-w-lg text-4xl font-medium leading-tight sm:text-5xl">
+              Encrypted HTML links for agent-made pages.
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-7 text-[var(--muted-foreground)]">
+              The server stores ciphertext for seven days. The browser gets the key from the URL
+              fragment and renders the decrypted single-file HTML in a sandbox.
+            </p>
+          </div>
         </section>
 
         <section className="grid content-center gap-5">
