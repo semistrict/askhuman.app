@@ -200,6 +200,22 @@ test.describe("Encrypted HTML sharing", () => {
     }
   });
 
+  test("unknown browser routes render the not found page", async ({ page }) => {
+    const res = await page.goto("/feed");
+
+    expect(res?.status()).toBe(404);
+    await expect(page).toHaveTitle("404 | askhuman.app");
+    await expect(
+      page.getByRole("heading", { name: "Nothing lives at this address." })
+    ).toBeVisible();
+    await expect(page.getByText("route missing")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to start" })).toHaveAttribute("href", "/");
+    await expect(page.getByRole("link", { name: "Agent instructions" })).toHaveAttribute(
+      "href",
+      "/llms.txt"
+    );
+  });
+
   test("root curl instructions describe only the encrypted HTML flow", async ({ request }) => {
     const res = await request.get("/", { headers: { "User-Agent": "Claude-User/1.0" } });
     expect(res.status()).toBe(200);
