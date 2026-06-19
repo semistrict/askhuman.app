@@ -9,13 +9,34 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { buildRootPlainText, detectRootPlainRecipe } from "@/lib/root-plain";
 
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  "Permissions-Policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+  "Referrer-Policy": "no-referrer",
+  "Strict-Transport-Security": "max-age=31536000",
+  "X-Content-Type-Options": "nosniff",
+} as const;
+
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function handleRootPlain(request: Request): Promise<Response> {
   const base = new URL("/", request.url).toString().replace(/\/$/, "");
   const text = buildRootPlainText(base, { recipe: detectRootPlainRecipe(request) });
 
-  return new Response(text.endsWith("\n") ? text : `${text}\n`, {
+  return withSecurityHeaders(new Response(text.endsWith("\n") ? text : `${text}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+  }));
 }
 
 function shouldServePlainRoot(request: Request): boolean {
@@ -57,13 +78,13 @@ const worker = {
     // normalizes backslashes and validates the origin hasn't changed.
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
+      return withSecurityHeaders(await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
           const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
-      }, allowedWidths);
+      }, allowedWidths));
     }
 
     if (url.pathname === "/llms.txt" && request.method === "GET") {
@@ -80,7 +101,7 @@ const worker = {
     // Delegate everything else to vinext, forwarding ctx so that
     // ctx.waitUntil() is available to background cache writes and
     // other deferred work via getRequestExecutionContext().
-    return handler.fetch(request, env, ctx);
+    return withSecurityHeaders(await handler.fetch(request, env, ctx));
   },
 };
 

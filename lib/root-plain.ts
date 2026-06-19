@@ -37,6 +37,7 @@ function buildOpenSslRecipe(baseUrl: string): string {
   IV_B64_FILE="$WORKDIR/iv.b64"
   CIPHERTEXT_B64_FILE="$WORKDIR/ciphertext.b64"
   MAC_B64_FILE="$WORKDIR/mac.b64"
+  RESPONSE_FILE="$WORKDIR/upload-response.txt"
 
   openssl rand 64 > "$KEY_BIN"
   KEY_B64="$(b64url < "$KEY_BIN")"
@@ -56,7 +57,7 @@ function buildOpenSslRecipe(baseUrl: string): string {
   b64url < "$CIPHERTEXT_BIN" > "$CIPHERTEXT_B64_FILE"
   b64url < "$MAC_BIN" > "$MAC_B64_FILE"
 
-  URL="$(curl -s -X POST ${baseUrl}/upload \\
+  if ! HTTP_STATUS="$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" -X POST ${baseUrl}/upload \\
     --form-string "version=1" \\
     --form-string "alg=aes-256-cbc+hmac-sha256" \\
     --form-string "compression=gzip" \\
@@ -64,7 +65,15 @@ function buildOpenSslRecipe(baseUrl: string): string {
     --form-string "filename=$FILENAME" \\
     -F "iv=<$IV_B64_FILE" \\
     -F "ciphertext=<$CIPHERTEXT_B64_FILE" \\
-    -F "mac=<$MAC_B64_FILE")"
+    -F "mac=<$MAC_B64_FILE")"; then
+    printf 'Upload request failed.\\n' >&2
+    exit 1
+  fi
+  URL="$(cat "$RESPONSE_FILE")"
+  case "$HTTP_STATUS" in
+    2*) ;;
+    *) printf 'Upload failed (%s): %s\\n' "$HTTP_STATUS" "$URL" >&2; exit 1 ;;
+  esac
 
   printf '%s#k=%s\\n' "$URL" "$KEY_B64"`;
 }
