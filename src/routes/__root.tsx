@@ -21,7 +21,21 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico" },
+      {
+        rel: "icon",
+        href: "/favicon-light.ico",
+        type: "image/x-icon",
+        media: "(prefers-color-scheme: light)",
+        sizes: "32x32",
+      },
+      {
+        rel: "icon",
+        href: "/favicon-dark.ico",
+        type: "image/x-icon",
+        media: "(prefers-color-scheme: dark)",
+        sizes: "32x32",
+      },
+      { rel: "alternate icon", href: "/favicon.ico", sizes: "32x32" },
     ],
   }),
   component: Outlet,
