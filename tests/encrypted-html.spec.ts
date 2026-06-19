@@ -255,6 +255,16 @@ test.describe("Encrypted HTML sharing", () => {
     await expect
       .poll(async () => page.locator("body").evaluate((element) => getComputedStyle(element).fontFamily))
       .toContain("IBM Plex Sans");
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          await document.fonts.ready;
+          return Array.from(document.fonts).some(
+            (font) => font.family === "IBM Plex Sans" && font.status === "loaded"
+          );
+        })
+      )
+      .toBe(true);
     await expect(page.getByText("Tell your agent")).toHaveCount(0);
     await expect(page.getByText("curl askhuman.app and use that")).toHaveCount(0);
     await expect(
