@@ -146,6 +146,22 @@ test.describe("Encrypted HTML sharing", () => {
     expect(html).not.toContain("Agent Generated HTML");
   });
 
+  test("public responses include launch security headers", async ({ request }) => {
+    const browserRoot = await request.get("/", {
+      headers: { "User-Agent": "Mozilla/5.0 launch-smoke" },
+    });
+    const curlRoot = await request.get("/", { headers: { "User-Agent": "curl/8.7.1" } });
+    const uploadGet = await request.get("/upload");
+
+    for (const res of [browserRoot, curlRoot, uploadGet]) {
+      expect(res.headers()["x-content-type-options"]).toBe("nosniff");
+      expect(res.headers()["referrer-policy"]).toBe("no-referrer");
+      expect(res.headers()["strict-transport-security"]).toBe("max-age=31536000");
+      expect(res.headers()["permissions-policy"]).toContain("camera=()");
+      expect(res.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+    }
+  });
+
   test("root curl instructions describe only the encrypted HTML flow", async ({ request }) => {
     const res = await request.get("/", { headers: { "User-Agent": "Claude-User/1.0" } });
     expect(res.status()).toBe(200);
@@ -176,6 +192,9 @@ test.describe("Encrypted HTML sharing", () => {
     expect(text).toContain("openssl rand 64 > \"$KEY_BIN\"");
     expect(text).toContain("KEY_B64");
     expect(text).toContain("gzip -n -c");
+    expect(text).toContain('HTTP_STATUS="$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}"');
+    expect(text).toContain('case "$HTTP_STATUS" in');
+    expect(text).toContain("Upload failed (%s): %s");
     expect(text).toContain("OpenSSL + curl recipe");
     expect(text).not.toContain("PowerShell + .NET recipe");
     expect(text).toContain("/upload");

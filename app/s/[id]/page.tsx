@@ -1,6 +1,6 @@
-import { env } from "cloudflare:workers";
 import type { Metadata } from "next";
 import { cache } from "react";
+import { appEnv } from "@/lib/cloudflare-env";
 import type { EncryptedHtmlPayload } from "@/lib/encrypted-html";
 import { getShareRecord } from "@/lib/share-store";
 import { EncryptedHtmlViewer } from "./encrypted-html-viewer";
@@ -14,7 +14,7 @@ type SharePageProps = {
 const SHARE_PREVIEW_DESCRIPTION =
   "End-to-end encrypted HTML share. Open the complete link with its #k= fragment to decrypt locally.";
 
-const getCachedShareRecord = cache((id: string) => getShareRecord(env.SHARE_KEYS, id));
+const getCachedShareRecord = cache((id: string) => getShareRecord(appEnv.SHARE_KEYS, id));
 
 function getShareLabel(id: string, payload: EncryptedHtmlPayload | null): string {
   return payload?.title || payload?.filename || `share ${id}`;

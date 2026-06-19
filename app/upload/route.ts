@@ -1,5 +1,5 @@
-import { env } from "cloudflare:workers";
 import { createCompactId } from "@/lib/compact-id";
+import { appEnv } from "@/lib/cloudflare-env";
 import {
   ENCRYPTED_HTML_TTL_SECONDS,
   formatByteSize,
@@ -32,10 +32,6 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Accept, Content-Type",
-};
-
-type UploadEnv = typeof env & {
-  UPLOAD_RATE_LIMITER?: RateLimit;
 };
 
 function wantsJson(request: Request): boolean {
@@ -86,7 +82,7 @@ function readContentLength(request: Request): number | null {
 }
 
 async function enforceUploadAttemptRateLimit(actorKey: string): Promise<boolean> {
-  const limiter = (env as UploadEnv).UPLOAD_RATE_LIMITER;
+  const limiter = appEnv.UPLOAD_RATE_LIMITER;
   if (!limiter) return true;
 
   const { success } = await limiter.limit({ key: `upload:${actorKey}` });
@@ -190,7 +186,7 @@ export async function POST(request: Request) {
   }
 
   const quota = await reserveClientUploadQuota(
-    env.SHARE_KEYS,
+    appEnv.SHARE_KEYS,
     actorKey,
     estimateUploadBytes(payload, contentLength)
   );
@@ -201,7 +197,7 @@ export async function POST(request: Request) {
   }
 
   const id = createCompactId(11);
-  await env.SHARE_KEYS.put(id, JSON.stringify(payload), {
+  await appEnv.SHARE_KEYS.put(id, JSON.stringify(payload), {
     expirationTtl: ENCRYPTED_HTML_TTL_SECONDS,
   });
 
