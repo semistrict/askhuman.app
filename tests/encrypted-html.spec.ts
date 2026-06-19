@@ -162,6 +162,44 @@ test.describe("Encrypted HTML sharing", () => {
     }
   });
 
+  test("serves the favicon assets", async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.locator('link[rel="icon"][href="/favicon-light.ico"]')).toHaveAttribute(
+      "media",
+      "(prefers-color-scheme: light)"
+    );
+    await expect(page.locator('link[rel="icon"][href="/favicon-light.ico"]')).toHaveAttribute(
+      "type",
+      "image/x-icon"
+    );
+    await expect(page.locator('link[rel="icon"][href="/favicon-dark.ico"]')).toHaveAttribute(
+      "media",
+      "(prefers-color-scheme: dark)"
+    );
+    await expect(page.locator('link[rel="icon"][href="/favicon-dark.ico"]')).toHaveAttribute(
+      "type",
+      "image/x-icon"
+    );
+    await expect(page.locator('link[rel="alternate icon"][href="/favicon.ico"]')).toHaveAttribute(
+      "sizes",
+      "32x32"
+    );
+
+    for (const path of ["/favicon.ico", "/favicon-light.ico", "/favicon-dark.ico"]) {
+      const ico = await request.get(path);
+      expect(ico.status(), path).toBe(200);
+      expect(ico.headers()["content-type"]).toContain("image/x-icon");
+      expect((await ico.body()).byteLength, path).toBeGreaterThan(1000);
+    }
+
+    for (const path of ["/favicon-light.svg", "/favicon-dark.svg"]) {
+      const source = await request.get(path);
+      expect(source.status(), path).toBe(200);
+      expect(source.headers()["content-type"]).toContain("image/svg+xml");
+      expect(await source.text()).toContain("askhuman icon");
+    }
+  });
+
   test("root curl instructions describe only the encrypted HTML flow", async ({ request }) => {
     const res = await request.get("/", { headers: { "User-Agent": "Claude-User/1.0" } });
     expect(res.status()).toBe(200);
