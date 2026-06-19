@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { GriddedPanelBackdrop, GriddedPanelBadge } from "@/components/gridded-panel";
 
 export function NotFoundPage() {
   useEffect(() => {
@@ -13,20 +14,11 @@ export function NotFoundPage() {
           aria-label="404"
           className="relative min-h-[18rem] overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-[8px_8px_0_var(--hard-shadow)] sm:min-h-[24rem]"
         >
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-[linear-gradient(90deg,var(--border)_1px,transparent_1px),linear-gradient(0deg,var(--border)_1px,transparent_1px)] bg-[size:32px_32px] opacity-[0.08]"
-          />
-          <div
-            aria-hidden="true"
-            className="absolute left-5 top-5 h-12 w-12 border border-[var(--border)] bg-[var(--accent)] shadow-[4px_4px_0_var(--hard-shadow)]"
-          />
+          <GriddedPanelBackdrop />
           <p className="absolute bottom-8 left-5 right-5 font-mono text-[clamp(4.5rem,20vw,12rem)] font-semibold leading-none tracking-normal text-[var(--foreground)]">
             404
           </p>
-          <p className="absolute right-5 top-5 border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[11px] uppercase text-[var(--muted-foreground)] shadow-[3px_3px_0_var(--hard-shadow)]">
-            route missing
-          </p>
+          <GriddedPanelBadge>route missing</GriddedPanelBadge>
         </section>
 
         <section className="grid content-center border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[8px_8px_0_var(--hard-shadow)]">
